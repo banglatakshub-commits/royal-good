@@ -1,0 +1,111 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1791281046483,
+      "tag": "0000_create_players",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791281177794,
+      "tag": "0001_create_referrals",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791281421311,
+      "tag": "0002_referrals_unique_referred",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791281598606,
+      "tag": "0003_add_referral_photo",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791282316421,
+      "tag": "0004_admin_panel",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791282584811,
+      "tag": "0005_cleanup_orphan_roles_and_cascade",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791284992310,
+      "tag": "0006_create_custom_tasks",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791285582663,
+      "tag": "0007_withdrawals_note",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791288543682,
+      "tag": "0008_ads_limits",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791288780476,
+      "tag": "0009_ad_views",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791289328026,
+      "tag": "0010_job_daily_limits",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1791290668336,
+      "tag": "0011_ad_seconds",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1791291559521,
+      "tag": "0012_hide_admin_ids_and_payout_numbers",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1791292042247,
+      "tag": "0013_server_authoritative_balance",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1791294009514,
+      "tag": "0014_support_telegram_username",
+      "breakpoints": true
+    }
+  ]
+}

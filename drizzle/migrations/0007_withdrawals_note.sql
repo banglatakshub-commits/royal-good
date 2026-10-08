@@ -1,0 +1,1 @@
+ALTER TABLE public.withdrawals ADD COLUMN note text;

@@ -1,0 +1,2 @@
+ALTER TABLE public.app_settings ADD COLUMN support_telegram_username text NOT NULL DEFAULT '';
+COMMENT ON COLUMN public.app_settings.support_telegram_username IS 'Public Telegram support username configured by the admin; empty means not configured.';
