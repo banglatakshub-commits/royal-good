@@ -1,7 +1,8 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres from 'postgres';
+import * as schema from '../../drizzle/schema';
 
-const connectionString = process.env.DATABASE_URL || process.env.LOVABLE_DB_MIGRATION_URL || '';
+const connectionString = process.env.DATABASE_URL;
 
 if (!connectionString) {
   throw new Error('DATABASE_URL is not set');
@@ -13,4 +14,4 @@ const client = postgres(connectionString, {
   max: 10,
 });
 
-export const db = drizzle(client);
+export const db = drizzle(client, { schema });

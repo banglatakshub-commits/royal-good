@@ -1,6 +1,7 @@
-import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/database";
+import { players } from "../../drizzle/schema";
+import { eq, desc } from "drizzle-orm";
 import { getTgUser } from "@/lib/telegram";
-import { syncProfile, getMyBalance } from "@/lib/earn.functions";
 
 export interface PlayerRow {
   tg_id: string;
@@ -12,31 +13,77 @@ export interface PlayerRow {
 
 /** Create/refresh the current Telegram user's profile on the server; returns their balance. */
 export async function syncPlayer(): Promise<number | null> {
-  const u = getTgUser();
+  const user = getTgUser();
+  if (!user.id) return null;
+  
   try {
-    const r = await syncProfile({ data: { tgId: u.username, name: u.name, username: u.username, photo: u.photo, chatId: u.id ?? null } });
-    return r.balance;
-  } catch {
+    // Check if user exists
+    const existingUser = await db.select().from(players).where(eq(players.tg_id, String(user.id))).limit(1);
+    
+    if (existingUser.length === 0) {
+      // Create new user
+      await db.insert(players).values({
+        tg_id: String(user.id),
+        name: user.name,
+        username: user.username,
+        photo_url: user.photo,
+        balance: 0
+      });
+      return 0;
+    } else {
+      // Update existing user info
+      await db.update(players)
+        .set({
+          name: user.name,
+          username: user.username,
+          photo_url: user.photo,
+          updated_at: new Date()
+        })
+        .where(eq(players.tg_id, String(user.id)));
+      
+      return existingUser[0].balance;
+    }
+  } catch (error) {
+    console.error("Profile sync error:", error);
     return null;
   }
 }
 
 /** Fetch top earners, highest balance first. */
 export async function fetchLeaderboard(limit = 50): Promise<PlayerRow[]> {
-  const { data, error } = await supabase
-    .from("players")
-    .select("tg_id, name, username, photo_url, balance")
-    .order("balance", { ascending: false })
+  try {
+    const data = await db.select({
+      tg_id: players.tg_id,
+      name: players.name,
+      username: players.username,
+      photo_url: players.photo_url,
+      balance: players.balance
+    })
+    .from(players)
+    .orderBy(desc(players.balance))
     .limit(limit);
-  if (error || !data) return [];
-  return data as PlayerRow[];
+    
+    return data;
+  } catch (error) {
+    console.error("Leaderboard fetch error:", error);
+    return [];
+  }
 }
 
 /** Read the current user's saved balance from the server. */
 export async function fetchMyBalance(): Promise<number | null> {
+  const user = getTgUser();
+  if (!user.id) return null;
+  
   try {
-    return (await getMyBalance({ data: { tgId: getTgUser().username } })).balance;
-  } catch {
+    const result = await db.select({ balance: players.balance })
+      .from(players)
+      .where(eq(players.tg_id, String(user.id)))
+      .limit(1);
+    
+    return result[0]?.balance || 0;
+  } catch (error) {
+    console.error("Balance fetch error:", error);
     return null;
   }
 }
