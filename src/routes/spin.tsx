@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { PageShell } from "@/components/AppShell";
 import { setServerBalance } from "@/lib/wallet";
 import { doSpin, getSpinStatus } from "@/lib/earn.functions";
-import { getTgUser } from "@/lib/telegram";
+import { getTgIdentity } from "@/lib/telegram";
 import { settings, loadSettings } from "@/lib/settings";
 
 export const Route = createFileRoute("/spin")({
@@ -12,7 +12,10 @@ export const Route = createFileRoute("/spin")({
       { title: "Daily Spin — Life Good" },
       { name: "description", content: "প্রতিদিন ২টি ফ্রি স্পিন — ৳20 থেকে ৳300 পর্যন্ত জিতুন।" },
       { property: "og:title", content: "Daily Spin — Life Good" },
-      { property: "og:description", content: "প্রতিদিন ২টি ফ্রি স্পিন — ৳20 থেকে ৳300 পর্যন্ত জিতুন।" },
+      {
+        property: "og:description",
+        content: "প্রতিদিন ২টি ফ্রি স্পিন — ৳20 থেকে ৳300 পর্যন্ত জিতুন।",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
     ],
@@ -42,8 +45,11 @@ function SpinPage() {
   const [DAILY, setDaily] = useState(settings.daily_spins);
   useEffect(() => {
     void loadSettings().then((x) => setDaily(x.daily_spins));
-    void getSpinStatus({ data: { tgId: getTgUser().username } })
-      .then((r) => { setUsed(r.used); setDaily(r.limit); })
+    void getSpinStatus({ data: getTgIdentity() })
+      .then((r) => {
+        setUsed(r.used);
+        setDaily(r.limit);
+      })
       .catch(() => {});
   }, []);
 
@@ -54,14 +60,17 @@ function SpinPage() {
     setSpinning(true);
     let r;
     try {
-      r = await doSpin({ data: { tgId: getTgUser().username } });
+      r = await doSpin({ data: getTgIdentity() });
     } catch {
       setSpinning(false);
       return;
     }
     setUsed(r.used);
     setDaily(r.limit);
-    if (!r.ok) { setSpinning(false); return; }
+    if (!r.ok) {
+      setSpinning(false);
+      return;
+    }
     const idx = r.index;
     const amount = r.amount;
     const target = 360 - (idx * SEG + SEG / 2);
@@ -76,8 +85,7 @@ function SpinPage() {
   };
 
   const gradient = `conic-gradient(${SEGMENTS.map(
-    (_, i) =>
-      `${i % 2 ? "var(--gold)" : "var(--primary)"} ${i * SEG}deg ${(i + 1) * SEG}deg`,
+    (_, i) => `${i % 2 ? "var(--gold)" : "var(--primary)"} ${i * SEG}deg ${(i + 1) * SEG}deg`,
   ).join(",")})`;
 
   return (

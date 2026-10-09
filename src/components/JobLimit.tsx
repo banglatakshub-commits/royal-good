@@ -1,23 +1,23 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { getJobStatus, recordJob } from "@/lib/jobs.functions";
-import { getTgUser } from "@/lib/telegram";
+import { getTgIdentity } from "@/lib/telegram";
 import { setServerBalance } from "@/lib/wallet";
 
 export function useJobLimit(kind: "typing" | "quiz") {
   const statusFn = useServerFn(getJobStatus);
   const recordFn = useServerFn(recordJob);
   const queryClient = useQueryClient();
-  const tgId = getTgUser().username;
-  const queryKey = ["job-status", tgId, kind];
+  const identity = getTgIdentity();
+  const queryKey = ["job-status", identity.tgId, kind];
   const { data: st = null } = useQuery({
     queryKey,
-    queryFn: () => statusFn({ data: { tgId, kind } }),
+    queryFn: () => statusFn({ data: { ...identity, kind } }),
     staleTime: 15_000,
   });
   const record = async () => {
     try {
-      const r = await recordFn({ data: { tgId, kind } });
+      const r = await recordFn({ data: { ...identity, kind } });
       queryClient.setQueryData(queryKey, { ...st, done: r.done, limit: r.limit });
       if (r.ok) setServerBalance(r.balance);
       return r.ok;
@@ -29,7 +29,13 @@ export function useJobLimit(kind: "typing" | "quiz") {
   return { st, left, record };
 }
 
-export function LimitInfo({ st, left }: { st: { done: number; limit: number } | null; left: number | null }) {
+export function LimitInfo({
+  st,
+  left,
+}: {
+  st: { done: number; limit: number } | null;
+  left: number | null;
+}) {
   if (!st) return null;
   if (left === 0)
     return (

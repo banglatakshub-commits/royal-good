@@ -2,9 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { Bell, Wallet, Disc3, Keyboard, HelpCircle, MonitorPlay } from "lucide-react";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { db } from "@/lib/database";
-import { custom_tasks } from "../../drizzle/schema";
-import { eq } from "drizzle-orm";
+import { getCustomTasks } from "@/lib/public.functions";
 import { useBalance } from "@/lib/wallet";
 import { useLiveSettings } from "@/lib/settings";
 import { getTgUser } from "@/lib/telegram";
@@ -41,27 +39,10 @@ function Index() {
   const balance = useBalance();
   const cfg = useLiveSettings();
   const [user, setUser] = useState(getTgUser);
-  
+
   const { data: custom = [] } = useQuery({
     queryKey: ["custom-tasks"],
-    queryFn: async () => {
-      try {
-        const data = await db.select({
-          id: custom_tasks.id,
-          title: custom_tasks.title,
-          icon: custom_tasks.icon,
-          reward: custom_tasks.reward
-        })
-        .from(custom_tasks)
-        .where(eq(custom_tasks.active, true))
-        .orderBy(custom_tasks.created_at);
-        
-        return data;
-      } catch (error) {
-        console.error("Custom tasks fetch error:", error);
-        return [];
-      }
-    },
+    queryFn: () => getCustomTasks(),
     refetchInterval: 10000,
     refetchOnWindowFocus: true,
     staleTime: 0,
@@ -98,7 +79,9 @@ function Index() {
         </div>
 
         <div className="relative mt-2 text-center">
-          <Suspense fallback={<div className="h-[138px]" />}><RoyalSculpture /></Suspense>
+          <Suspense fallback={<div className="h-[138px]" />}>
+            <RoyalSculpture />
+          </Suspense>
           <p className="pointer-events-none font-display text-2xl leading-tight">Royal Good</p>
         </div>
 
@@ -132,33 +115,43 @@ function Index() {
         <div className="home-project-grid grid grid-cols-2 gap-3">
           {jobs.map((j) => (
             <ScrollReveal key={j.title}>
-            <Link
-              to={j.to}
-              className="flex flex-col items-center rounded-2xl border bg-card p-3 shadow-sm transition-transform active:scale-95"
-            >
-              <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-tile text-primary">
-                <j.icon className="h-5 w-5" />
-              </div>
-              <span className="mb-2 text-center text-[10px] font-bold text-primary-deep">
-                {j.title}
-              </span>
-              <span className="rounded-full border border-gold/30 bg-gold/10 px-2 py-0.5 text-[9px] font-bold text-primary-deep">
-                {j.reward === "task" ? `৳${cfg.task_reward}` : j.reward === "ad" ? `৳${cfg.ad_reward}` : j.reward}
-              </span>
-            </Link>
+              <Link
+                to={j.to}
+                className="flex flex-col items-center rounded-2xl border bg-card p-3 shadow-sm transition-transform active:scale-95"
+              >
+                <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-tile text-primary">
+                  <j.icon className="h-5 w-5" />
+                </div>
+                <span className="mb-2 text-center text-[10px] font-bold text-primary-deep">
+                  {j.title}
+                </span>
+                <span className="rounded-full border border-gold/30 bg-gold/10 px-2 py-0.5 text-[9px] font-bold text-primary-deep">
+                  {j.reward === "task"
+                    ? `৳${cfg.task_reward}`
+                    : j.reward === "ad"
+                      ? `৳${cfg.ad_reward}`
+                      : j.reward}
+                </span>
+              </Link>
             </ScrollReveal>
           ))}
           {custom.map((t) => (
             <ScrollReveal key={t.id}>
-            <Link
-              to="/task/$id"
-              params={{ id: t.id }}
-              className="flex flex-col items-center rounded-2xl border bg-card p-3 shadow-sm transition-transform active:scale-95"
-            >
-              <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-tile"><TaskIcon icon={t.icon} size={20} /></div>
-              <span className="mb-2 text-center text-[10px] font-bold text-primary-deep">{t.title}</span>
-              <span className="rounded-full border border-gold/30 bg-gold/10 px-2 py-0.5 text-[9px] font-bold text-primary-deep">৳{t.reward}</span>
-            </Link>
+              <Link
+                to="/task/$id"
+                params={{ id: t.id }}
+                className="flex flex-col items-center rounded-2xl border bg-card p-3 shadow-sm transition-transform active:scale-95"
+              >
+                <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-tile">
+                  <TaskIcon icon={t.icon} size={20} />
+                </div>
+                <span className="mb-2 text-center text-[10px] font-bold text-primary-deep">
+                  {t.title}
+                </span>
+                <span className="rounded-full border border-gold/30 bg-gold/10 px-2 py-0.5 text-[9px] font-bold text-primary-deep">
+                  ৳{t.reward}
+                </span>
+              </Link>
             </ScrollReveal>
           ))}
         </div>
@@ -166,7 +159,9 @@ function Index() {
 
       {/* সফল উইথড্র ব্যানার */}
       <section className="px-6">
-        <ScrollReveal><WithdrawBanner /></ScrollReveal>
+        <ScrollReveal>
+          <WithdrawBanner />
+        </ScrollReveal>
       </section>
 
       <BottomNav active="home" />
