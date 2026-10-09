@@ -172,13 +172,21 @@ export const requestWithdraw = createServerFn({ method: "POST" })
 
     return db.transaction(async (tx) => {
       const [player] = await tx
-        .select({ blocked: players.blocked, balance: players.balance })
+        .select({
+          blocked: players.blocked,
+          balance: players.balance,
+          is_active: players.is_active,
+        })
         .from(players)
         .where(eq(players.tg_id, user.id))
         .for("update")
         .limit(1);
       if (!player) return { ok: false, error: "অ্যাকাউন্ট পাওয়া যায়নি" };
       if (player.blocked) return { ok: false, error: "আপনার অ্যাকাউন্ট ব্লক করা হয়েছে" };
+      // Enforced here, not only in the UI: the activation fee gates withdrawals on the server.
+      if (!player.is_active) {
+        return { ok: false, error: "উইথড্র করতে আগে আপনার অ্যাকাউন্ট অ্যাক্টিভ করুন" };
+      }
 
       const [[config], [rejected]] = await Promise.all([
         tx.select().from(app_settings).where(eq(app_settings.id, 1)).limit(1),
@@ -326,26 +334,45 @@ export const recordReferral = createServerFn({ method: "POST" })
     });
   });
 
+export type PaymentStart = { ok: true; url: string } | { ok: false; error: string };
+
+/**
+ * Starts the account-activation payment. The amount and gateway keys come from app_settings,
+ * never from the browser. Nekpayment's order-creation API is not wired up yet, so this returns
+ * an explicit error rather than a link to a route that does not exist.
+ */
 export const generatePaymentUrl = createServerFn({ method: "POST" })
   .validator((data) => identity.parse(data))
-  .handler(async ({ data }) => {
+  .handler(async ({ data }): Promise<PaymentStart> => {
     const user = authenticatedUser(data);
     const db = getDb();
-    const [settingRow] = await db
-      .select({
-        activation_fee: app_settings.activation_fee,
-        nek_api_key: app_settings.nek_api_key,
-        nek_secret_key: app_settings.nek_secret_key,
-      })
-      .from(app_settings)
-      .where(eq(app_settings.id, 1))
-      .limit(1);
+    const [[player], [settingRow]] = await Promise.all([
+      db
+        .select({ is_active: players.is_active, blocked: players.blocked })
+        .from(players)
+        .where(eq(players.tg_id, user.id))
+        .limit(1),
+      db
+        .select({
+          nek_api_key: app_settings.nek_api_key,
+          nek_secret_key: app_settings.nek_secret_key,
+        })
+        .from(app_settings)
+        .where(eq(app_settings.id, 1))
+        .limit(1),
+    ]);
 
-    const fee = settingRow?.activation_fee ?? 100;
+    if (!player) return { ok: false, error: "অ্যাকাউন্ট পাওয়া যায়নি" };
+    if (player.blocked) return { ok: false, error: "আপনার অ্যাকাউন্ট ব্লক করা হয়েছে" };
+    if (player.is_active) return { ok: false, error: "আপনার অ্যাকাউন্ট ইতিমধ্যে অ্যাক্টিভ" };
 
-    // TODO: implement actual Nekpayment API call here using nek_api_key and nek_secret_key
-    // Since API structure is unknown, just returning a placeholder or mimicking success.
-    // Usually it returns a redirect_url.
+    const gatewayConfigured = Boolean(
+      settingRow?.nek_api_key.trim() && settingRow?.nek_secret_key.trim(),
+    );
+    if (!gatewayConfigured) {
+      return { ok: false, error: "পেমেন্ট গেটওয়ে এখনো সেট করা হয়নি। অ্যাডমিনকে জানান।" };
+    }
 
-    return { ok: true, url: `/api/pay?amount=${fee}&tg_id=${user.id}` };
+    // Do not guess the gateway endpoint or parameters here: a wrong host would receive the merchant keys.
+    return { ok: false, error: "পেমেন্ট গেটওয়ে এখনো চালু হয়নি। কিছুক্ষণ পর আবার চেষ্টা করুন।" };
   });

@@ -203,6 +203,9 @@ export const adminGetSettings = createServerFn({ method: "POST" })
         daily_typing: 5,
         daily_quiz: 5,
         support_telegram_username: "",
+        activation_fee: 100,
+        nek_api_key: "",
+        nek_secret_key: "",
       }
     );
   });

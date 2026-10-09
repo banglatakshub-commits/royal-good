@@ -120,16 +120,15 @@ function WithdrawPage() {
     setIsProcessingPayment(true);
     try {
       const res = await generatePaymentUrl({ data: getTgIdentity() });
-      if (res.ok && res.url) {
+      if (res.ok) {
         window.location.href = res.url;
-      } else {
-        alert("পেমেন্ট গেটওয়েতে সমস্যা হয়েছে");
-        setIsProcessingPayment(false);
+        return;
       }
-    } catch (e) {
+      alert(res.error);
+    } catch {
       alert("সমস্যা হয়েছে");
-      setIsProcessingPayment(false);
     }
+    setIsProcessingPayment(false);
   };
 
   if (showActivationPopup) {
