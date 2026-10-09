@@ -49,7 +49,7 @@ function Refer() {
 
   const shareRef = () => {
     const text = encodeURIComponent(
-      `Life Good অ্যাপে জয়েন করে টাস্ক করে আয় করুন! আমার রেফার লিংক: ${refLink}`
+      `Life Good অ্যাপে জয়েন করে টাস্ক করে আয় করুন! আমার রেফার লিংক: ${refLink}`,
     );
     window.open(`https://t.me/share/url?url=${encodeURIComponent(refLink)}&text=${text}`, "_blank");
   };
@@ -78,7 +78,9 @@ function Refer() {
             <p className="mt-0.5 text-[10px] font-semibold text-muted-foreground">মোট রেফার</p>
           </div>
           <div className="rounded-2xl border bg-card p-4 text-center shadow-card">
-            <p className="font-display text-2xl font-bold text-primary">৳{referrals.length * REF_BONUS}</p>
+            <p className="font-display text-2xl font-bold text-primary">
+              ৳{referrals.length * REF_BONUS}
+            </p>
             <p className="mt-0.5 text-[10px] font-semibold text-muted-foreground">রেফার আয়</p>
           </div>
         </div>
@@ -92,7 +94,8 @@ function Refer() {
             <div className="flex-1">
               <p className="text-xs font-bold text-primary-deep">আপনার রেফার লিংক</p>
               <p className="text-[10px] text-muted-foreground">
-                প্রতি রেফারে <span className="font-bold text-primary">৳{REF_BONUS}</span> বোনাস জিতুন
+                প্রতি রেফারে <span className="font-bold text-primary">৳{REF_BONUS}</span> বোনাস
+                জিতুন
               </p>
             </div>
             <span className="rounded-full border border-gold/30 bg-gold/10 px-2 py-0.5 text-[9px] font-bold text-primary-deep">
@@ -124,7 +127,9 @@ function Refer() {
 
         {/* How it works */}
         <div className="mt-4 rounded-2xl border bg-card p-4 shadow-card">
-          <h2 className="mb-3 font-display text-sm font-semibold text-primary-deep">কিভাবে কাজ করবো</h2>
+          <h2 className="mb-3 font-display text-sm font-semibold text-primary-deep">
+            কিভাবে কাজ করবো
+          </h2>
           <ol className="space-y-2">
             {[
               "নিচের বাটনে চাপে রেফার লিংকটা শেয়াৰ করুন",
@@ -143,7 +148,9 @@ function Refer() {
 
         {/* Referral list */}
         <div className="mt-4 rounded-2xl border bg-card p-4 shadow-card">
-          <h2 className="mb-3 font-display text-sm font-semibold text-primary-deep">আমার রেফার তালিকা</h2>
+          <h2 className="mb-3 font-display text-sm font-semibold text-primary-deep">
+            আমার রেফার তালিকা
+          </h2>
           <div className="space-y-2">
             {referrals.length === 0 ? (
               <p className="text-center text-[11px] text-muted-foreground">
@@ -151,7 +158,10 @@ function Refer() {
               </p>
             ) : (
               referrals.map((r) => (
-                <div key={r.referred_id} className="flex items-center justify-between rounded-lg border bg-background px-3 py-2">
+                <div
+                  key={r.referred_id}
+                  className="flex items-center justify-between rounded-lg border bg-background px-3 py-2"
+                >
                   <div className="flex min-w-0 items-center gap-2.5">
                     {r.photo_url ? (
                       <img
@@ -169,7 +179,10 @@ function Refer() {
                         {r.referred_name ?? r.referred_id}
                       </p>
                       <p className="text-[10px] text-muted-foreground">
-                        {new Date(r.created_at).toLocaleDateString("bn-BD", { day: "numeric", month: "long" })}
+                        {new Date(r.created_at).toLocaleDateString("bn-BD", {
+                          day: "numeric",
+                          month: "long",
+                        })}
                       </p>
                     </div>
                   </div>

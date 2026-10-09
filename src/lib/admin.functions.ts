@@ -183,6 +183,9 @@ export const adminGetSettings = createServerFn({ method: "POST" })
         daily_typing: app_settings.daily_typing,
         daily_quiz: app_settings.daily_quiz,
         support_telegram_username: app_settings.support_telegram_username,
+        activation_fee: app_settings.activation_fee,
+        nek_api_key: app_settings.nek_api_key,
+        nek_secret_key: app_settings.nek_secret_key,
       })
       .from(app_settings)
       .where(eq(app_settings.id, 1))
@@ -368,6 +371,9 @@ const settingsSchema = z.object({
     .max(33)
     .transform((value) => value.replace(/^@/, ""))
     .pipe(z.string().regex(/^(?:[A-Za-z][A-Za-z0-9_]{4,31})?$/)),
+  activation_fee: z.number().int().min(0).max(10_000_000).default(100),
+  nek_api_key: z.string().optional().default(""),
+  nek_secret_key: z.string().optional().default(""),
 });
 
 export const adminSaveSettings = createServerFn({ method: "POST" })

@@ -590,12 +590,19 @@ function SettingsTab() {
         daily_typing: data.daily_typing ?? 5,
         daily_quiz: data.daily_quiz ?? 5,
         support_telegram_username: data.support_telegram_username ?? "",
+        activation_fee: data.activation_fee ?? 100,
+        nek_api_key: data.nek_api_key ?? "",
+        nek_secret_key: data.nek_secret_key ?? "",
       });
   }, [data]);
   const fields: [
-    Exclude<keyof typeof form, "ads_script_id" | "support_telegram_username">,
+    Exclude<
+      keyof typeof form,
+      "ads_script_id" | "support_telegram_username" | "nek_api_key" | "nek_secret_key"
+    >,
     string,
   ][] = [
+    ["activation_fee", "অ্যাকাউন্ট অ্যাক্টিভেশন ফি (৳)"],
     ["task_reward", "প্রতি কাজের রিওয়ার্ড (৳) — Typing / Quiz"],
     ["ad_reward", "প্রতি এড দেখলে বোনাস (৳)"],
     ["ad_seconds", "এড কাউন্টডাউন (সেকেন্ড) — এর আগে বন্ধ করলে রিওয়ার্ড নেই"],
@@ -660,6 +667,24 @@ function SettingsTab() {
           placeholder="@username"
           value={form.support_telegram_username}
           onChange={(e) => setForm({ ...form, support_telegram_username: e.target.value })}
+          className="mt-1 w-full rounded-xl border bg-background px-3 py-2"
+        />
+      </label>
+      <label className="block text-sm">
+        <span className="text-muted-foreground">Nekpayment API Key</span>
+        <input
+          value={form.nek_api_key}
+          onChange={(e) => setForm({ ...form, nek_api_key: e.target.value })}
+          placeholder="Enter API Key"
+          className="mt-1 w-full rounded-xl border bg-background px-3 py-2"
+        />
+      </label>
+      <label className="block text-sm">
+        <span className="text-muted-foreground">Nekpayment Secret Key</span>
+        <input
+          value={form.nek_secret_key}
+          onChange={(e) => setForm({ ...form, nek_secret_key: e.target.value })}
+          placeholder="Enter Secret Key"
           className="mt-1 w-full rounded-xl border bg-background px-3 py-2"
         />
       </label>

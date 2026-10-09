@@ -13,7 +13,10 @@ export type NavKey = (typeof items)[number]["key"];
 
 export function BottomNav({ active }: { active: NavKey }) {
   return (
-    <nav aria-label="Main navigation" className="fixed inset-x-3 bottom-3 z-20 mx-auto flex max-w-md items-center justify-between gap-1 rounded-full border bg-nav p-2 text-nav-foreground shadow-card backdrop-blur-xl">
+    <nav
+      aria-label="Main navigation"
+      className="fixed inset-x-3 bottom-3 z-20 mx-auto flex max-w-md items-center justify-between gap-1 rounded-full border bg-nav p-2 text-nav-foreground shadow-card backdrop-blur-xl"
+    >
       {items.map((n) => {
         const isActive = n.key === active;
         return (

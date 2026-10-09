@@ -8,6 +8,20 @@
       "when": 1791509255585,
       "tag": "0000_railway_postgres",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791539095021,
+      "tag": "0001_nifty_iceman",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791539497881,
+      "tag": "0002_dusty_black_widow",
+      "breakpoints": true
     }
   ]
 }

@@ -1,4 +1,5 @@
 <!-- LOVABLE:BEGIN -->
+
 > [!IMPORTANT]
 > This project is connected to [Lovable](https://lovable.dev). Avoid rewriting
 > published git history — force pushing, or rebasing/amending/squashing commits
@@ -7,7 +8,9 @@
 >
 > Commits you push to the connected branch sync back to Lovable and show up in
 > the editor, so keep the branch in a working state.
+
 <!-- LOVABLE:END -->
+
 - Admin panel is public route /admin (ssr:false); admin identity comes from verified Telegram Mini App initData and must match ADMIN_TELEGRAM_IDS or the admin_telegram_ids PostgreSQL allowlist (currently seeded with 'shanto_as'); all admin reads/writes go through authenticated server functions in src/lib/admin.functions.ts.
 - App-wide tunables (rewards, min withdraw, spins) come from app_settings row id=1 via src/lib/settings.ts — so admin can change them without code.
 - App-wide presentation colors and gradients live in semantic tokens in src/styles.css; transparent page backgrounds expose the shared canvas so all routes stay visually consistent.

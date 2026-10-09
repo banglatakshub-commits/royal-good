@@ -20,6 +20,9 @@ import { Route as SpinRouteImport } from './routes/spin'
 import { Route as TypingRouteImport } from './routes/typing'
 import { Route as WithdrawRouteImport } from './routes/withdraw'
 import { Route as TaskIdRouteImport } from './routes/task.$id'
+import { Route as ApiPublicNekpaymentWebhookRouteImport } from './routes/api/public/nekpayment-webhook'
+import { Route as ApiPublicPayRouteImport } from './routes/api/public/pay'
+import { Route as ApiPublicPayMockSuccessRouteImport } from './routes/api/public/pay-mock-success'
 import { Route as ApiPublicTelegramWebhookRouteImport } from './routes/api/public/telegram-webhook'
 
 const IndexRoute = IndexRouteImport.update({
@@ -77,6 +80,22 @@ const TaskIdRoute = TaskIdRouteImport.update({
   path: '/task/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicNekpaymentWebhookRoute =
+  ApiPublicNekpaymentWebhookRouteImport.update({
+    id: '/api/public/nekpayment-webhook',
+    path: '/api/public/nekpayment-webhook',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiPublicPayRoute = ApiPublicPayRouteImport.update({
+  id: '/api/public/pay',
+  path: '/api/public/pay',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicPayMockSuccessRoute = ApiPublicPayMockSuccessRouteImport.update({
+  id: '/api/public/pay-mock-success',
+  path: '/api/public/pay-mock-success',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicTelegramWebhookRoute =
   ApiPublicTelegramWebhookRouteImport.update({
     id: '/api/public/telegram-webhook',
@@ -96,6 +115,9 @@ export interface FileRoutesByFullPath {
   '/typing': typeof TypingRoute
   '/withdraw': typeof WithdrawRoute
   '/task/$id': typeof TaskIdRoute
+  '/api/public/nekpayment-webhook': typeof ApiPublicNekpaymentWebhookRoute
+  '/api/public/pay': typeof ApiPublicPayRoute
+  '/api/public/pay-mock-success': typeof ApiPublicPayMockSuccessRoute
   '/api/public/telegram-webhook': typeof ApiPublicTelegramWebhookRoute
 }
 export interface FileRoutesByTo {
@@ -110,6 +132,9 @@ export interface FileRoutesByTo {
   '/typing': typeof TypingRoute
   '/withdraw': typeof WithdrawRoute
   '/task/$id': typeof TaskIdRoute
+  '/api/public/nekpayment-webhook': typeof ApiPublicNekpaymentWebhookRoute
+  '/api/public/pay': typeof ApiPublicPayRoute
+  '/api/public/pay-mock-success': typeof ApiPublicPayMockSuccessRoute
   '/api/public/telegram-webhook': typeof ApiPublicTelegramWebhookRoute
 }
 export interface FileRoutesById {
@@ -125,6 +150,9 @@ export interface FileRoutesById {
   '/typing': typeof TypingRoute
   '/withdraw': typeof WithdrawRoute
   '/task/$id': typeof TaskIdRoute
+  '/api/public/nekpayment-webhook': typeof ApiPublicNekpaymentWebhookRoute
+  '/api/public/pay': typeof ApiPublicPayRoute
+  '/api/public/pay-mock-success': typeof ApiPublicPayMockSuccessRoute
   '/api/public/telegram-webhook': typeof ApiPublicTelegramWebhookRoute
 }
 export interface FileRouteTypes {
@@ -141,6 +169,9 @@ export interface FileRouteTypes {
     | '/typing'
     | '/withdraw'
     | '/task/$id'
+    | '/api/public/nekpayment-webhook'
+    | '/api/public/pay'
+    | '/api/public/pay-mock-success'
     | '/api/public/telegram-webhook'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -155,6 +186,9 @@ export interface FileRouteTypes {
     | '/typing'
     | '/withdraw'
     | '/task/$id'
+    | '/api/public/nekpayment-webhook'
+    | '/api/public/pay'
+    | '/api/public/pay-mock-success'
     | '/api/public/telegram-webhook'
   id:
     | '__root__'
@@ -169,6 +203,9 @@ export interface FileRouteTypes {
     | '/typing'
     | '/withdraw'
     | '/task/$id'
+    | '/api/public/nekpayment-webhook'
+    | '/api/public/pay'
+    | '/api/public/pay-mock-success'
     | '/api/public/telegram-webhook'
   fileRoutesById: FileRoutesById
 }
@@ -184,6 +221,9 @@ export interface RootRouteChildren {
   TypingRoute: typeof TypingRoute
   WithdrawRoute: typeof WithdrawRoute
   TaskIdRoute: typeof TaskIdRoute
+  ApiPublicNekpaymentWebhookRoute: typeof ApiPublicNekpaymentWebhookRoute
+  ApiPublicPayRoute: typeof ApiPublicPayRoute
+  ApiPublicPayMockSuccessRoute: typeof ApiPublicPayMockSuccessRoute
   ApiPublicTelegramWebhookRoute: typeof ApiPublicTelegramWebhookRoute
 }
 
@@ -266,6 +306,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TaskIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/nekpayment-webhook': {
+      id: '/api/public/nekpayment-webhook'
+      path: '/api/public/nekpayment-webhook'
+      fullPath: '/api/public/nekpayment-webhook'
+      preLoaderRoute: typeof ApiPublicNekpaymentWebhookRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/pay': {
+      id: '/api/public/pay'
+      path: '/api/public/pay'
+      fullPath: '/api/public/pay'
+      preLoaderRoute: typeof ApiPublicPayRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/pay-mock-success': {
+      id: '/api/public/pay-mock-success'
+      path: '/api/public/pay-mock-success'
+      fullPath: '/api/public/pay-mock-success'
+      preLoaderRoute: typeof ApiPublicPayMockSuccessRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/telegram-webhook': {
       id: '/api/public/telegram-webhook'
       path: '/api/public/telegram-webhook'
@@ -288,6 +349,9 @@ const rootRouteChildren: RootRouteChildren = {
   TypingRoute: TypingRoute,
   WithdrawRoute: WithdrawRoute,
   TaskIdRoute: TaskIdRoute,
+  ApiPublicNekpaymentWebhookRoute: ApiPublicNekpaymentWebhookRoute,
+  ApiPublicPayRoute: ApiPublicPayRoute,
+  ApiPublicPayMockSuccessRoute: ApiPublicPayMockSuccessRoute,
   ApiPublicTelegramWebhookRoute: ApiPublicTelegramWebhookRoute,
 }
 export const routeTree = rootRouteImport
