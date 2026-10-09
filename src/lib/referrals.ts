@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/database";
+import { referrals, players } from "../../drizzle/schema";
+import { eq, desc } from "drizzle-orm";
 import { getTgUser } from "@/lib/telegram";
-import { recordReferral } from "@/lib/earn.functions";
 import { syncPlayer } from "@/lib/players";
 
 export const REF_BONUS = 5;
@@ -32,51 +33,95 @@ function incomingRefCode(): string | null {
 
 /**
  * Record that the current user joined via someone's link.
- * The referrals table has a UNIQUE constraint on referred_id, so the insert
- * succeeds only the very first time this user joins. Only on that first
- * successful insert do we credit the referrer's bonus — repeat opens,
- * reinstalled apps, or other devices can never grant the bonus twice.
  */
 export async function recordIncomingReferral() {
   const code = incomingRefCode();
   const me = getTgUser();
   if (!code || code === myRefCode() || code === me.username) return;
+  
   const key = `lg_ref_done_${code}`;
   if (localStorage.getItem(key)) return;
+  
   try {
     await syncPlayer();
-    await recordReferral({ data: { tgId: me.username, code, name: me.name, photo: me.photo } });
-    localStorage.setItem(key, "1");
-  } catch {
-    // offline — ignore
+    
+    // Check if referral already exists
+    const existingReferral = await db.select()
+      .from(referrals)
+      .where(eq(referrals.referred_tg_id, String(me.id || me.username)))
+      .limit(1);
+    
+    if (existingReferral.length === 0) {
+      // Create referral record
+      const referralId = `ref_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      await db.insert(referrals).values({
+        id: referralId,
+        referrer_tg_id: code,
+        referred_tg_id: String(me.id || me.username),
+        bonus_amount: REF_BONUS
+      });
+      
+      // Update referrer balance
+      await db.update(players)
+        .set({
+          balance: players.balance + REF_BONUS
+        })
+        .where(eq(players.tg_id, code));
+      
+      localStorage.setItem(key, "1");
+    }
+  } catch (error) {
+    console.error("Referral recording error:", error);
   }
 }
 
 export async function fetchMyReferrals(): Promise<ReferralRow[]> {
-  const { data } = await supabase
-    .from("referrals")
-    .select("referred_id, referred_name, photo_url, created_at")
-    .eq("referrer_id", getTgUser().username)
-    .order("created_at", { ascending: false });
-  return (data as ReferralRow[]) ?? [];
+  try {
+    const data = await db.select({
+      referred_id: referrals.referred_tg_id,
+      referred_name: players.name,
+      photo_url: players.photo_url,
+      created_at: referrals.created_at
+    })
+    .from(referrals)
+    .leftJoin(players, eq(referrals.referred_tg_id, players.tg_id))
+    .where(eq(referrals.referrer_tg_id, getTgUser().username || String(getTgUser().id)))
+    .orderBy(desc(referrals.created_at));
+    
+    return data.map(row => ({
+      referred_id: row.referred_id,
+      referred_name: row.referred_name,
+      photo_url: row.photo_url,
+      created_at: row.created_at?.toISOString() || new Date().toISOString()
+    }));
+  } catch (error) {
+    console.error("Fetch referrals error:", error);
+    return [];
+  }
 }
 
 /** Load my referrals (bonus is credited by recordIncomingReferral, once per join). */
 export function useReferrals() {
   const [list, setList] = useState<ReferralRow[]>([]);
+  
   useEffect(() => {
     let alive = true;
+    
     const run = async () => {
       await recordIncomingReferral();
       const rows = await fetchMyReferrals();
       if (alive) setList(rows);
     };
+    
     void run();
-    const t = setInterval(run, 8000);
+    const interval = setInterval(run, 8000);
+    
     return () => {
       alive = false;
-      clearInterval(t);
+      clearInterval(interval);
     };
   }, []);
+  
   return list;
 }

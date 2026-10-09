@@ -2,7 +2,9 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { Bell, Wallet, Disc3, Keyboard, HelpCircle, MonitorPlay } from "lucide-react";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/database";
+import { custom_tasks } from "../../drizzle/schema";
+import { eq } from "drizzle-orm";
 import { useBalance } from "@/lib/wallet";
 import { useLiveSettings } from "@/lib/settings";
 import { getTgUser } from "@/lib/telegram";
@@ -35,15 +37,31 @@ const jobs = [
   { to: "/spin" as const, icon: Disc3, title: "Daily Spin", reward: "৳20-300" },
 ];
 
-
 function Index() {
   const balance = useBalance();
   const cfg = useLiveSettings();
   const [user, setUser] = useState(getTgUser);
+  
   const { data: custom = [] } = useQuery({
     queryKey: ["custom-tasks"],
-    queryFn: async () =>
-      (await supabase.from("custom_tasks").select("id, title, icon, reward").eq("active", true).order("created_at")).data ?? [],
+    queryFn: async () => {
+      try {
+        const data = await db.select({
+          id: custom_tasks.id,
+          title: custom_tasks.title,
+          icon: custom_tasks.icon,
+          reward: custom_tasks.reward
+        })
+        .from(custom_tasks)
+        .where(eq(custom_tasks.active, true))
+        .orderBy(custom_tasks.created_at);
+        
+        return data;
+      } catch (error) {
+        console.error("Custom tasks fetch error:", error);
+        return [];
+      }
+    },
     refetchInterval: 10000,
     refetchOnWindowFocus: true,
     staleTime: 0,
@@ -52,7 +70,6 @@ function Index() {
   useEffect(() => {
     setUser(getTgUser());
   }, []);
-
 
   return (
     <div className="mx-auto min-h-screen max-w-md bg-background pb-24">
@@ -151,7 +168,6 @@ function Index() {
       <section className="px-6">
         <ScrollReveal><WithdrawBanner /></ScrollReveal>
       </section>
-
 
       <BottomNav active="home" />
     </div>
