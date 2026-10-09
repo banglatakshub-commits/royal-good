@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { syncPlayer, fetchMyBalance } from "@/lib/players";
+import { fetchMyBalance, syncPlayer } from "@/lib/players";
 import { loadSettings } from "@/lib/settings";
+import { getTgIdentity } from "@/lib/telegram";
 
 // Balance shown in the app is a cache of the server value. Only the server can change it.
 let restored = false;
@@ -14,35 +15,45 @@ export function getBalance() {
 
 /** Update the cached balance with a value returned by the server. */
 export function setServerBalance(next: number | null | undefined) {
-  if (typeof next !== "number") return;
+  if (typeof window === "undefined" || typeof next !== "number" || !Number.isFinite(next)) return;
   localStorage.setItem(KEY, String(next));
   window.dispatchEvent(new Event("lg-balance"));
 }
 
 export async function refreshBalance() {
-  setServerBalance(await fetchMyBalance());
+  const balance = await fetchMyBalance({ data: getTgIdentity() });
+  setServerBalance(balance);
 }
 
 export function useBalance() {
-  const [b, setB] = useState(0);
+  const [balance, setBalance] = useState(0);
   useEffect(() => {
-    const sync = () => setB(getBalance());
+    const sync = () => setBalance(getBalance());
     sync();
     if (!restored) {
       restored = true;
       void loadSettings();
-      void syncPlayer().then(setServerBalance);
+      void syncPlayer({ data: getTgIdentity() })
+        .then((result) => setServerBalance(result.balance))
+        .catch((error: unknown) => console.error("Profile sync error:", error));
     }
-    // Pull fresh server balance so referral bonus, refunds and admin changes appear instantly.
+    // Pull fresh server balance so referral bonuses, refunds and admin changes appear promptly.
     if (!poller) {
-      poller = setInterval(() => { if (document.visibilityState === "visible") void refreshBalance(); }, 8000);
-      const onVis = () => { if (document.visibilityState === "visible") void refreshBalance(); };
-      document.addEventListener("visibilitychange", onVis);
-      window.addEventListener("focus", onVis);
+      poller = setInterval(() => {
+        if (document.visibilityState === "visible") void refreshBalance().catch(() => {});
+      }, 8000);
+      const onVisibility = () => {
+        if (document.visibilityState === "visible") void refreshBalance().catch(() => {});
+      };
+      document.addEventListener("visibilitychange", onVisibility);
+      window.addEventListener("focus", onVisibility);
     }
     window.addEventListener("lg-balance", sync);
     window.addEventListener("storage", sync);
-    return () => { window.removeEventListener("lg-balance", sync); window.removeEventListener("storage", sync); };
+    return () => {
+      window.removeEventListener("lg-balance", sync);
+      window.removeEventListener("storage", sync);
+    };
   }, []);
-  return b;
+  return balance;
 }

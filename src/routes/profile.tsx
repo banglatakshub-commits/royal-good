@@ -3,8 +3,9 @@ import { Wallet, HelpCircle, ShieldCheck, ChevronRight } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useBalance } from "@/lib/wallet";
-import { getTgUser } from "@/lib/telegram";
+import { getTgIdentity, getTgUser } from "@/lib/telegram";
 import { bindAdminId, ensureTgAdmin } from "@/lib/admin.functions";
+import { getAppSettings } from "@/lib/settings.functions";
 import { BottomNav } from "@/components/BottomNav";
 import { WithdrawBanner } from "@/components/WithdrawBanner";
 import { supportUsernameSchema } from "@/lib/support";
@@ -29,14 +30,14 @@ function Profile() {
 
   useEffect(() => setUser(getTgUser()), []);
 
-  const myId = user.id ? String(user.id) : user.username;
+  const identity = getTgIdentity();
+  const myId = identity.tgId;
   const { data: supportUsername = "" } = useQuery({
     queryKey: ["support-telegram"],
     staleTime: 0,
     queryFn: async () => {
-      const { data, error } = await supabase.from("app_settings").select("support_telegram_username").eq("id", 1).maybeSingle();
-      if (error) throw error;
-      const parsed = supportUsernameSchema.safeParse(data?.support_telegram_username ?? "");
+      const data = await getAppSettings();
+      const parsed = supportUsernameSchema.safeParse(data.support_telegram_username);
       return parsed.success ? parsed.data : "";
     },
   });
@@ -44,14 +45,12 @@ function Profile() {
   const { data: showAdmin } = useQuery({
     queryKey: ["is-admin", myId],
     queryFn: async () => {
-      // Test mode: browser preview has no real Telegram user — show the card
-      const h = window.location.hostname;
-      const tgw = (window as any).Telegram?.WebApp;
-      if (h.includes("id-preview--") || h.includes("lovableproject.com") || h === "localhost" || !tgw?.initData || !tgw?.initDataUnsafe?.user) return true;
-      // One-time: swap the username placeholder for the real numeric Telegram ID
-      await bindAdminId({ data: { tgId: myId, username: user.username } }).catch(() => null);
-      const r = await ensureTgAdmin({ data: { tgId: myId, username: user.username } }).catch(() => null);
-      return !!r?.isAdmin;
+      const tgw = (window as Window & { Telegram?: { WebApp?: { initData?: string } } }).Telegram
+        ?.WebApp;
+      if (!tgw?.initData && !import.meta.env.DEV) return false;
+      await bindAdminId({ data: identity }).catch(() => null);
+      const result = await ensureTgAdmin({ data: identity }).catch(() => null);
+      return !!result?.isAdmin;
     },
   });
 
@@ -75,19 +74,19 @@ function Profile() {
       <main className="-mt-8 px-6">
         {/* Admin Panel */}
         {showAdmin && (
-        <Link
-          to="/admin"
-          className="mb-4 flex items-center gap-3 rounded-2xl border bg-card p-4 shadow-card active:scale-[0.98]"
-        >
-          <div className="header-grad flex h-11 w-11 items-center justify-center rounded-full text-primary-foreground shadow-sm">
-            <ShieldCheck className="h-5 w-5" />
-          </div>
-          <div className="flex-1">
-            <p className="text-sm font-bold text-primary-deep">Admin Panel</p>
-            <p className="text-[10px] text-muted-foreground">অ্যাপ পরিচালনা করুন</p>
-          </div>
-          <ChevronRight className="h-4 w-4 text-muted-foreground" />
-        </Link>
+          <Link
+            to="/admin"
+            className="mb-4 flex items-center gap-3 rounded-2xl border bg-card p-4 shadow-card active:scale-[0.98]"
+          >
+            <div className="header-grad flex h-11 w-11 items-center justify-center rounded-full text-primary-foreground shadow-sm">
+              <ShieldCheck className="h-5 w-5" />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-bold text-primary-deep">Admin Panel</p>
+              <p className="text-[10px] text-muted-foreground">অ্যাপ পরিচালনা করুন</p>
+            </div>
+            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+          </Link>
         )}
 
         {/* Balance card */}
@@ -113,13 +112,25 @@ function Profile() {
           target="_blank"
           rel="noopener noreferrer"
           onClick={(event) => {
-            if (!supportUrl) { event.preventDefault(); return; }
-            const tg = (window as any).Telegram?.WebApp;
-            if (tg?.openTelegramLink) { event.preventDefault(); tg.openTelegramLink(supportUrl); }
+            if (!supportUrl) {
+              event.preventDefault();
+              return;
+            }
+            const tg = (
+              window as Window & {
+                Telegram?: { WebApp?: { openTelegramLink?: (url: string) => void } };
+              }
+            ).Telegram?.WebApp;
+            if (tg?.openTelegramLink) {
+              event.preventDefault();
+              tg.openTelegramLink(supportUrl);
+            }
           }}
           className="mt-4 flex items-center gap-3 rounded-2xl border bg-card p-4 shadow-card"
         >
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-tile text-primary"><HelpCircle className="h-6 w-6" /></div>
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-tile text-primary">
+            <HelpCircle className="h-6 w-6" />
+          </div>
           <div className="min-w-0 flex-1">
             <p className="text-sm font-bold text-primary-deep">Help &amp; Support</p>
             {supportUsername && (

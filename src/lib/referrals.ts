@@ -1,9 +1,7 @@
-import { useEffect, useState } from "react";
-import { db } from "@/lib/database";
-import { referrals, players } from "../../drizzle/schema";
-import { eq, desc } from "drizzle-orm";
-import { getTgUser } from "@/lib/telegram";
-import { syncPlayer } from "@/lib/players";
+import { useQuery } from "@tanstack/react-query";
+import { getTgIdentity, getTgId } from "@/lib/telegram";
+import { getMyReferrals } from "@/lib/referral.functions";
+import { recordReferral } from "@/lib/earn.functions";
 
 export const REF_BONUS = 5;
 export const BOT_USERNAME = "Royal_goodbot";
@@ -16,8 +14,7 @@ export interface ReferralRow {
 }
 
 export function myRefCode() {
-  const u = getTgUser();
-  return u.id ? String(u.id) : u.username;
+  return getTgId();
 }
 
 export function myRefLink() {
@@ -26,102 +23,40 @@ export function myRefLink() {
 
 function incomingRefCode(): string | null {
   if (typeof window === "undefined") return null;
-  const sp = (window as any).Telegram?.WebApp?.initDataUnsafe?.start_param;
-  const q = new URLSearchParams(window.location.search).get("ref");
-  return sp || q || null;
+  const startParam = (
+    window as Window & { Telegram?: { WebApp?: { initDataUnsafe?: { start_param?: string } } } }
+  ).Telegram?.WebApp?.initDataUnsafe?.start_param;
+  const queryCode = new URLSearchParams(window.location.search).get("ref");
+  return startParam || queryCode || null;
 }
 
-/**
- * Record that the current user joined via someone's link.
- */
+/** Record the incoming Telegram start parameter once; PostgreSQL enforces uniqueness too. */
 export async function recordIncomingReferral() {
   const code = incomingRefCode();
-  const me = getTgUser();
-  if (!code || code === myRefCode() || code === me.username) return;
-  
-  const key = `lg_ref_done_${code}`;
+  if (!code) return;
+  const identity = getTgIdentity();
+  if (
+    code === identity.tgId ||
+    (identity.username && code.toLowerCase() === identity.username.toLowerCase())
+  )
+    return;
+
+  const key = `lg_ref_done_${identity.tgId}_${code}`;
   if (localStorage.getItem(key)) return;
-  
   try {
-    await syncPlayer();
-    
-    // Check if referral already exists
-    const existingReferral = await db.select()
-      .from(referrals)
-      .where(eq(referrals.referred_tg_id, String(me.id || me.username)))
-      .limit(1);
-    
-    if (existingReferral.length === 0) {
-      // Create referral record
-      const referralId = `ref_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      
-      await db.insert(referrals).values({
-        id: referralId,
-        referrer_tg_id: code,
-        referred_tg_id: String(me.id || me.username),
-        bonus_amount: REF_BONUS
-      });
-      
-      // Update referrer balance
-      await db.update(players)
-        .set({
-          balance: players.balance + REF_BONUS
-        })
-        .where(eq(players.tg_id, code));
-      
-      localStorage.setItem(key, "1");
-    }
+    const result = await recordReferral({ data: { ...identity, code } });
+    if (result.ok && typeof localStorage !== "undefined") localStorage.setItem(key, "1");
   } catch (error) {
     console.error("Referral recording error:", error);
   }
 }
 
-export async function fetchMyReferrals(): Promise<ReferralRow[]> {
-  try {
-    const data = await db.select({
-      referred_id: referrals.referred_tg_id,
-      referred_name: players.name,
-      photo_url: players.photo_url,
-      created_at: referrals.created_at
-    })
-    .from(referrals)
-    .leftJoin(players, eq(referrals.referred_tg_id, players.tg_id))
-    .where(eq(referrals.referrer_tg_id, getTgUser().username || String(getTgUser().id)))
-    .orderBy(desc(referrals.created_at));
-    
-    return data.map(row => ({
-      referred_id: row.referred_id,
-      referred_name: row.referred_name,
-      photo_url: row.photo_url,
-      created_at: row.created_at?.toISOString() || new Date().toISOString()
-    }));
-  } catch (error) {
-    console.error("Fetch referrals error:", error);
-    return [];
-  }
-}
-
-/** Load my referrals (bonus is credited by recordIncomingReferral, once per join). */
 export function useReferrals() {
-  const [list, setList] = useState<ReferralRow[]>([]);
-  
-  useEffect(() => {
-    let alive = true;
-    
-    const run = async () => {
-      await recordIncomingReferral();
-      const rows = await fetchMyReferrals();
-      if (alive) setList(rows);
-    };
-    
-    void run();
-    const interval = setInterval(run, 8000);
-    
-    return () => {
-      alive = false;
-      clearInterval(interval);
-    };
-  }, []);
-  
-  return list;
+  const identity = getTgIdentity();
+  const { data = [] } = useQuery({
+    queryKey: ["my-referrals", identity.tgId],
+    queryFn: async () => getMyReferrals({ data: identity }),
+    refetchInterval: 8000,
+  });
+  return data;
 }

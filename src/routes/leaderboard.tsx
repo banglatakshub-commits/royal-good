@@ -3,7 +3,7 @@ import { Crown, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchLeaderboard, type PlayerRow } from "@/lib/players";
-import { getTgUser } from "@/lib/telegram";
+import { getTgIdentity } from "@/lib/telegram";
 import { BottomNav } from "@/components/BottomNav";
 
 export const Route = createFileRoute("/leaderboard")({
@@ -27,23 +27,22 @@ function rankColor(rank: number) {
   return "bg-tile text-primary-deep/70 border-transparent";
 }
 
-type Row = PlayerRow & { rank: number; me: boolean };
+type Row = Omit<PlayerRow, "isMe"> & { rank: number; me: boolean };
 
 function Leaderboard() {
-  const [user, setUser] = useState(getTgUser);
-  useEffect(() => setUser(getTgUser()), []);
+  const [identity, setIdentity] = useState(getTgIdentity);
+  useEffect(() => setIdentity(getTgIdentity()), []);
 
   const { data, isLoading } = useQuery({
-    queryKey: ["leaderboard"],
-    queryFn: () => fetchLeaderboard(),
+    queryKey: ["leaderboard", identity.tgId],
+    queryFn: () => fetchLeaderboard({ data: identity }),
     refetchInterval: 15000,
   });
 
-  const rows: Row[] = (data ?? []).map((p, i) => ({
-    ...p,
-    rank: i + 1,
-    me: p.tg_id === user.username,
-  }));
+  const rows: Row[] = (data ?? []).map((p, i) => {
+    const { isMe, ...player } = p;
+    return { ...player, rank: i + 1, me: isMe };
+  });
 
   const top3 = rows.slice(0, 3);
   const rest = rows.slice(3);
@@ -73,7 +72,7 @@ function Leaderboard() {
             <div className="mb-6 flex items-end justify-center gap-3">
               {podiumOrder.map((r) => (
                 <div
-                  key={r.tg_id}
+                  key={r.rank}
                   className={`flex w-1/3 min-w-0 flex-col items-center overflow-hidden rounded-2xl border bg-card p-3 shadow-card ${
                     r.rank === 1 ? "-translate-y-2 border-gold/60" : ""
                   } ${r.me ? "ring-2 ring-primary/40" : ""}`}
@@ -112,7 +111,7 @@ function Leaderboard() {
             <div className="rounded-2xl border bg-card p-3 shadow-card">
               {rest.map((r) => (
                 <div
-                  key={r.tg_id}
+                  key={r.rank}
                   className={`flex items-center gap-3 rounded-xl px-3 py-2.5 ${
                     r.me ? "bg-primary/10 ring-1 ring-primary/30" : ""
                   }`}
@@ -123,7 +122,8 @@ function Leaderboard() {
                     {r.rank}
                   </span>
                   <span className="min-w-0 flex-1 truncate text-xs font-semibold text-primary-deep">
-                    {r.name} {r.me && <em className="not-italic text-[9px] text-primary">(আপনি)</em>}
+                    {r.name}{" "}
+                    {r.me && <em className="not-italic text-[9px] text-primary">(আপনি)</em>}
                   </span>
                   <span className="font-display text-sm font-bold text-primary">৳{r.balance}</span>
                 </div>

@@ -1,48 +1,103 @@
 import { createServerFn } from "@tanstack/react-start";
+import { and, count, eq, gte } from "drizzle-orm";
 import { z } from "zod";
-import { credit } from "./balance.server";
+import { getDb } from "@/lib/database";
+import { app_settings, job_views, players } from "../../drizzle/schema";
+import { creditWithin, type BalanceExecutor } from "./balance.server";
+import { getDhakaNoonWindow } from "./dhaka-window";
+import { requireTelegramUser, telegramIdentityMatches } from "./telegram-auth.server";
 
-const input = z.object({ tgId: z.string().trim().min(1).max(64), kind: z.enum(["typing", "quiz"]) });
+const identity = z.object({
+  initData: z.string().max(8192).optional(),
+  tgId: z.string().trim().min(1).max(64),
+  name: z.string().trim().max(100).optional(),
+  username: z.string().trim().max(64).nullable().optional(),
+  photo: z.string().url().max(500).nullable().optional(),
+});
+const input = identity.extend({ kind: z.enum(["typing", "quiz"]) });
 
-// Same window as ads: resets daily at 12:00 PM (noon) Dhaka time.
-const DHAKA = 6 * 3600 * 1000;
-function bounds() {
-  const now = new Date(Date.now() + DHAKA);
-  const mid = new Date(now);
-  mid.setUTCHours(0, 0, 0, 0);
-  const beforeNoon = now.getTime() - mid.getTime() < 12 * 3600 * 1000;
-  const start = mid.getTime() - DHAKA + (beforeNoon ? -12 : 12) * 3600 * 1000;
-  return { since: new Date(start).toISOString(), resetAt: new Date(start + 86400000).toISOString() };
+type Kind = "typing" | "quiz";
+
+function authenticatedId(data: z.infer<typeof identity>): string {
+  const user = requireTelegramUser(data.initData, {
+    tgId: data.tgId,
+    name: data.name,
+    username: data.username,
+    photoUrl: data.photo,
+  });
+  if (!telegramIdentityMatches(user, data.tgId))
+    throw new Error("Telegram identity does not match the request.");
+  return user.id;
 }
 
-async function status(tgId: string, kind: "typing" | "quiz") {
-  const { supabaseAdmin: db } = await import("@/integrations/supabase/client.server");
-  const { since, resetAt } = bounds();
-  const [cleanup, views, config] = await Promise.all([
-    db.from("job_views").delete().eq("tg_id", tgId).eq("kind", kind).lt("created_at", since),
-    db.from("job_views").select("id", { count: "exact", head: true }).eq("tg_id", tgId).eq("kind", kind).gte("created_at", since),
-    db.from("app_settings").select("daily_typing, daily_quiz, task_reward").eq("id", 1).maybeSingle(),
+async function getStatus(tgId: string, kind: Kind) {
+  const db = getDb();
+  const { since, resetAt } = getDhakaNoonWindow();
+  const [[result], [config]] = await Promise.all([
+    db
+      .select({ done: count(job_views.id) })
+      .from(job_views)
+      .where(
+        and(eq(job_views.tg_id, tgId), eq(job_views.kind, kind), gte(job_views.created_at, since)),
+      ),
+    db.select().from(app_settings).where(eq(app_settings.id, 1)).limit(1),
   ]);
-  if (cleanup.error || views.error || config.error) throw new Error("Job status unavailable");
-  const s = config.data;
-  const limit = (kind === "typing" ? s?.daily_typing : s?.daily_quiz) ?? 5;
-  return { db, done: views.count ?? 0, limit, resetAt, reward: s?.task_reward ?? 5 };
+  const limit = kind === "typing" ? (config?.daily_typing ?? 5) : (config?.daily_quiz ?? 5);
+  return { done: result?.done ?? 0, limit, resetAt, reward: config?.task_reward ?? 5 };
 }
 
 export const getJobStatus = createServerFn({ method: "POST" })
-  .inputValidator((d) => input.parse(d))
+  .validator((data) => input.parse(data))
   .handler(async ({ data }) => {
-    const { done, limit, resetAt } = await status(data.tgId, data.kind);
-    return { done, limit, resetAt };
+    const tgId = authenticatedId(data);
+    const { done, limit, resetAt } = await getStatus(tgId, data.kind);
+    return { done, limit, resetAt: resetAt.toISOString() };
   });
 
+/** Atomically enforce the daily limit, record the job, and credit its reward. */
 export const recordJob = createServerFn({ method: "POST" })
-  .inputValidator((d) => input.parse(d))
+  .validator((data) => input.parse(data))
   .handler(async ({ data }) => {
-    const st = await status(data.tgId, data.kind);
-    if (st.done >= st.limit) return { ok: false, done: st.done, limit: st.limit };
-    const { error } = await st.db.from("job_views").insert({ tg_id: data.tgId, kind: data.kind });
-    if (error) throw new Error("Job could not be recorded");
-    const balance = await credit(data.tgId, st.reward);
-    return { ok: true, balance, done: st.done + 1, limit: st.limit };
+    const tgId = authenticatedId(data);
+    const db = getDb();
+    const { since } = getDhakaNoonWindow();
+
+    return db.transaction(async (tx) => {
+      // Serialize actions for a user so simultaneous requests cannot exceed the limit.
+      const [player] = await tx
+        .select({ blocked: players.blocked })
+        .from(players)
+        .where(eq(players.tg_id, tgId))
+        .for("update")
+        .limit(1);
+      if (!player) throw new Error("Player profile is not ready.");
+      if (player.blocked) throw new Error("Your account is blocked.");
+
+      const [[result], [config]] = await Promise.all([
+        tx
+          .select({ done: count(job_views.id) })
+          .from(job_views)
+          .where(
+            and(
+              eq(job_views.tg_id, tgId),
+              eq(job_views.kind, data.kind),
+              gte(job_views.created_at, since),
+            ),
+          ),
+        tx.select().from(app_settings).where(eq(app_settings.id, 1)).limit(1),
+      ]);
+      const limit =
+        data.kind === "typing" ? (config?.daily_typing ?? 5) : (config?.daily_quiz ?? 5);
+      const done = result?.done ?? 0;
+      if (done >= limit) return { ok: false, done, limit, balance: null as number | null };
+
+      await tx.insert(job_views).values({ tg_id: tgId, kind: data.kind });
+      const balance = await creditWithin(
+        tx as unknown as BalanceExecutor,
+        tgId,
+        config?.task_reward ?? 5,
+      );
+      if (balance === null) throw new Error("Reward could not be credited.");
+      return { ok: true, done: done + 1, limit, balance };
+    });
   });

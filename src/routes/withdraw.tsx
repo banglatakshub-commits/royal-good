@@ -4,18 +4,18 @@ import { CheckCircle2, Clock, History, Smartphone, XCircle } from "lucide-react"
 import { BottomNav } from "@/components/BottomNav";
 import { PageShell } from "@/components/AppShell";
 import { useBalance, setServerBalance } from "@/lib/wallet";
-import { requestWithdraw } from "@/lib/earn.functions";
+import { getMyWithdrawalHistory, requestWithdraw } from "@/lib/earn.functions";
 import { settings, loadSettings } from "@/lib/settings";
-import { db } from "@/lib/database";
-import { withdrawals } from "../../drizzle/schema";
-import { eq, desc } from "drizzle-orm";
-import { getTgUser } from "@/lib/telegram";
+import { getTgIdentity } from "@/lib/telegram";
 
 export const Route = createFileRoute("/withdraw")({
   head: () => ({
     meta: [
       { title: "Withdraw — Life Good" },
-      { name: "description", content: "Life Good থেকে বিকাশ বা নগদে উইথড্র অনুরোধ করুন এবং পেমেন্টের অবস্থা দেখুন।" },
+      {
+        name: "description",
+        content: "Life Good থেকে বিকাশ বা নগদে উইথড্র অনুরোধ করুন এবং পেমেন্টের অবস্থা দেখুন।",
+      },
       { property: "og:title", content: "Withdraw — Life Good" },
       { property: "og:description", content: "বিকাশ বা নগদে উইথড্র অনুরোধ এবং পেমেন্টের ইতিহাস।" },
       { property: "og:type", content: "website" },
@@ -27,7 +27,14 @@ export const Route = createFileRoute("/withdraw")({
 
 const methods = ["bKash", "Nagad"];
 const HKEY = "lg_withdraws";
-type Req = { amount: number; method: string; number: string; at: number; status?: string; note?: string | null };
+type Req = {
+  amount: number;
+  method: string;
+  number: string;
+  at: number;
+  status?: string;
+  note?: string | null;
+};
 
 function loadHistory(): Req[] {
   try {
@@ -53,41 +60,40 @@ function WithdrawPage() {
   useEffect(() => {
     setHistory(loadHistory());
     void loadSettings().then((x) => setMin(x.min_withdraw));
-    const u = getTgUser();
-    void supabase
-      .from("withdrawals")
-      .select("amount, method, status, note, created_at")
-      .eq("tg_id", u.username)
-      .order("created_at", { ascending: false })
-      .limit(30)
-      .then(({ data }) => {
-        if (!data) return;
-        const local = loadHistory();
+    void getMyWithdrawalHistory({ data: getTgIdentity() })
+      .then(({ rows, rejectedCount: count }) => {
         setHistory(
-          data.map((w) => {
-            const at = new Date(w.created_at).getTime();
-            const m = local.find((l) => l.amount === w.amount && Math.abs(l.at - at) < 120_000);
-            return { amount: w.amount, method: w.method, number: m?.number ?? "", at, status: w.status, note: w.note };
-          }),
+          rows.map((row) => ({
+            amount: row.amount,
+            method: row.method,
+            number: row.number,
+            at: new Date(row.created_at).getTime(),
+            status: row.status,
+            note: row.note,
+          })),
         );
-      });
-    void supabase
-      .from("withdrawals")
-      .select("id", { count: "exact", head: true })
-      .eq("tg_id", u.username)
-      .eq("status", "rejected")
-      .then(({ count }) => setRejectedCount(count ?? 0));
+        setRejectedCount(count);
+      })
+      .catch((historyError: unknown) =>
+        console.error("Withdrawal history load error:", historyError),
+      );
   }, []);
 
   const submit = async () => {
     const amt = Number(amount);
-    const u = getTgUser();
     if (amt < effectiveMin) return setError(`সর্বনিম্ন উইথড্র ৳${effectiveMin}`);
     if (amt > balance) return setError("পর্যাপ্ত ব্যালেন্স নেই");
     if (number.length < 11) return setError("সঠিক মোবাইল নম্বর দিন");
     let r;
     try {
-      r = await requestWithdraw({ data: { tgId: u.username, name: u.name, amount: Math.floor(amt), method: method as "bKash" | "Nagad", number: number.trim() } });
+      r = await requestWithdraw({
+        data: {
+          ...getTgIdentity(),
+          amount: Math.floor(amt),
+          method: method as "bKash" | "Nagad",
+          number: number.trim(),
+        },
+      });
     } catch {
       return setError("সঠিক তথ্য দিন, তারপর আবার চেষ্টা করুন");
     }
@@ -105,12 +111,10 @@ function WithdrawPage() {
       <PageShell title="Withdraw">
         <div className="flex flex-col items-center px-6 pt-20 text-center">
           <CheckCircle2 className="mb-4 h-16 w-16 text-primary" />
-          <h2 className="font-display text-2xl font-bold text-primary-deep">
-            রিকোয়েস্ট সফল!
-          </h2>
+          <h2 className="font-display text-2xl font-bold text-primary-deep">রিকোয়েস্ট সফল!</h2>
           <p className="mt-2 text-sm text-muted-foreground">
-            ৳{amount} উইথড্র রিকোয়েস্ট {method} ({number}) নম্বরে পাঠানো হয়েছে।
-            ২৪ ঘন্টার মধ্যে পেমেন্ট পাবেন।
+            ৳{amount} উইথড্র রিকোয়েস্ট {method} ({number}) নম্বরে পাঠানো হয়েছে। ২৪ ঘন্টার মধ্যে
+            পেমেন্ট পাবেন।
           </p>
           <button
             onClick={() => navigate({ to: "/" })}
@@ -133,12 +137,11 @@ function WithdrawPage() {
             বর্তমান ব্যালেন্স
           </p>
           <p className="font-display text-3xl font-bold text-primary">৳ {balance}</p>
-          <p className="mt-1 text-[11px] text-muted-foreground">
-            সর্বনিম্ন উইথড্র ৳{effectiveMin}
-          </p>
+          <p className="mt-1 text-[11px] text-muted-foreground">সর্বনিম্ন উইথড্র ৳{effectiveMin}</p>
           {rejectedCount > 0 && (
             <p className="mt-1 text-[11px] font-semibold text-destructive">
-              আপনার {rejectedCount} টি উইথড্র রিজেক্ট হয়েছে — তাই সর্বনিম্ন সীমা {Math.min(2 ** rejectedCount, 8)} গুণ বেড়েছে
+              আপনার {rejectedCount} টি উইথড্র রিজেক্ট হয়েছে — তাই সর্বনিম্ন সীমা{" "}
+              {Math.min(2 ** rejectedCount, 8)} গুণ বেড়েছে
             </p>
           )}
         </div>
@@ -214,11 +217,17 @@ function WithdrawPage() {
           ) : (
             <ul className="divide-y">
               {history.map((h) => (
-                <li key={`${h.at}-${h.amount}`} className="flex items-center justify-between py-2.5">
+                <li
+                  key={`${h.at}-${h.amount}`}
+                  className="flex items-center justify-between py-2.5"
+                >
                   <div>
-                    <p className="text-sm font-bold text-foreground">৳{h.amount} • {h.method}</p>
+                    <p className="text-sm font-bold text-foreground">
+                      ৳{h.amount} • {h.method}
+                    </p>
                     <p className="text-[11px] text-muted-foreground">
-                      {h.number ? `${h.number} • ` : ""}{new Date(h.at).toLocaleDateString("bn-BD")}
+                      {h.number ? `${h.number} • ` : ""}
+                      {new Date(h.at).toLocaleDateString("bn-BD")}
                     </p>
                     {h.status === "rejected" && h.note && (
                       <p className="text-[11px] text-destructive">কারণ: {h.note}</p>
@@ -229,7 +238,10 @@ function WithdrawPage() {
                       <CheckCircle2 className="h-3 w-3" /> পেইড
                     </span>
                   ) : h.status === "rejected" ? (
-                    <span title={h.note ?? ""} className="flex items-center gap-1 rounded-full bg-destructive/10 px-2.5 py-1 text-[10px] font-bold text-destructive">
+                    <span
+                      title={h.note ?? ""}
+                      className="flex items-center gap-1 rounded-full bg-destructive/10 px-2.5 py-1 text-[10px] font-bold text-destructive"
+                    >
                       <XCircle className="h-3 w-3" /> রিজেক্ট
                     </span>
                   ) : (

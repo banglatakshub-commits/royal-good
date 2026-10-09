@@ -1,1 +1,0 @@
-ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS ad_seconds integer NOT NULL DEFAULT 15;

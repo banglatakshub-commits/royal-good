@@ -1,6 +1,3 @@
--- Optional manual bootstrap for a Railway PostgreSQL database.
--- The app normally runs the canonical versioned migration at startup with `bun run db:migrate`.
--- Keep this file in sync with drizzle/migrations/0000_railway_postgres.sql.
 -- Disable legacy row policies before touching tables created by earlier deployments.
 DO $$
 DECLARE table_name TEXT;

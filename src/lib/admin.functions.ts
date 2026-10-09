@@ -1,226 +1,427 @@
 import { createServerFn } from "@tanstack/react-start";
+import { and, count, desc, eq, isNotNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
+import { getDb } from "@/lib/database";
+import {
+  ad_views,
+  admin_telegram_ids,
+  app_settings,
+  custom_tasks,
+  job_views,
+  players,
+  referrals,
+  task_claims,
+  withdrawals,
+} from "../../drizzle/schema";
+import { creditWithin, type BalanceExecutor } from "./balance.server";
+import {
+  requireTelegramUser,
+  telegramIdentityMatches,
+  type TelegramUser,
+} from "./telegram-auth.server";
 
-type AdminClient = Awaited<ReturnType<typeof getAdmin>>;
+const identitySchema = z.object({
+  initData: z.string().max(8192).optional(),
+  tgId: z.string().trim().min(1).max(64),
+  name: z.string().trim().max(100).optional(),
+  username: z.string().trim().max(64).nullable().optional(),
+  photo: z.string().url().max(500).nullable().optional(),
+});
+type Identity = z.infer<typeof identitySchema>;
 
-async function getAdmin() {
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  return supabaseAdmin;
+function authenticatedUser(data: Identity): TelegramUser {
+  const user = requireTelegramUser(data.initData, {
+    tgId: data.tgId,
+    name: data.name,
+    username: data.username,
+    photoUrl: data.photo,
+  });
+  if (!telegramIdentityMatches(user, data.tgId))
+    throw new Error("Telegram identity does not match the request.");
+  return user;
 }
 
-// Verify the Telegram user is a registered admin (by numeric id or username). Throws if not.
-async function isPreviewRequest(): Promise<boolean> {
-  try {
-    const { getRequest } = await import("@tanstack/react-start/server");
-    const req = getRequest();
-    const src = req.headers.get("origin") || req.headers.get("referer") || req.url;
-    const host = new URL(src).hostname;
-    return host.startsWith("id-preview--") || host.endsWith("lovableproject.com") || host === "localhost";
-  } catch {
-    return false;
-  }
+function normalized(value: string) {
+  return value.trim().replace(/^@/, "").toLowerCase();
 }
 
-async function assertTgAdmin(db: AdminClient, ids: string[]) {
-  // Editor preview test mode (same rule as the client) — published site still requires a listed admin.
-  if (await isPreviewRequest()) return;
-  const { data } = await db
-    .from("admin_telegram_ids")
-    .select("tg_id")
-    .in("tg_id", ids)
-    .limit(1);
-  if (!data || data.length === 0) throw new Error("Forbidden");
+async function assertTgAdmin(data: Identity): Promise<TelegramUser> {
+  const user = authenticatedUser(data);
+  const db = getDb();
+  const rows = await db.select({ tg_id: admin_telegram_ids.tg_id }).from(admin_telegram_ids);
+  const configured = new Set([
+    ...rows.map((row) => normalized(row.tg_id)),
+    ...(process.env["ADMIN_TELEGRAM_IDS"] ?? "").split(",").map(normalized).filter(Boolean),
+  ]);
+  const identities = [user.id, user.username]
+    .filter((value): value is string => !!value)
+    .map(normalized);
+  if (!identities.some((value) => configured.has(value))) throw new Error("Forbidden");
+  return user;
 }
 
-const tgIdSchema = z.string().trim().min(1).max(64);
-const identSchema = z.object({ tgId: tgIdSchema, username: z.string().trim().max(64).optional() });
-
-function identList(d: { tgId: string; username?: string | undefined }): string[] {
-  const ids = [d.tgId];
-  if (d.username) ids.push(d.username.toLowerCase());
-  return ids;
-}
-
-// One-time binding: the admin list holds the username 'shanto_as' until the real
-// user opens the app from Telegram; then we swap it for their numeric Telegram ID.
-// Requires a numeric tgId, so it cannot be triggered from a plain browser.
+// Bind the configured username alias to the authenticated user's numeric Telegram id.
 export const bindAdminId = createServerFn({ method: "POST" })
-  .inputValidator((d) => identSchema.parse(d))
+  .validator((data) => identitySchema.parse(data))
   .handler(async ({ data }) => {
-    if (!/^\d+$/.test(data.tgId) || !data.username) return { bound: false };
-    const db = await getAdmin();
-    const uname = data.username.toLowerCase();
-    const { data: row } = await db
-      .from("admin_telegram_ids")
-      .select("tg_id")
-      .eq("tg_id", uname)
-      .maybeSingle();
-    if (!row) return { bound: false };
-    await db.from("admin_telegram_ids").update({ tg_id: data.tgId }).eq("tg_id", uname);
+    const user = authenticatedUser(data);
+    if (!user.username) return { bound: false };
+    const db = getDb();
+    const alias = normalized(user.username);
+    const envAliases = (process.env["ADMIN_TELEGRAM_IDS"] ?? "").split(",").map(normalized);
+    const [row] = await db
+      .select({ tg_id: admin_telegram_ids.tg_id })
+      .from(admin_telegram_ids)
+      .where(sql`lower(replace(${admin_telegram_ids.tg_id}, '@', '')) = ${alias}`)
+      .limit(1);
+    if (!row && !envAliases.includes(alias)) return { bound: false };
+
+    if (row) {
+      await db.transaction(async (tx) => {
+        await tx.insert(admin_telegram_ids).values({ tg_id: user.id }).onConflictDoNothing();
+        await tx.delete(admin_telegram_ids).where(eq(admin_telegram_ids.tg_id, row.tg_id));
+      });
+    }
     return { bound: true };
   });
 
-// Check whether this Telegram user is an admin. No auto-claim — admins are fixed in admin_telegram_ids.
 export const ensureTgAdmin = createServerFn({ method: "POST" })
-  .inputValidator((d) => identSchema.parse(d))
+  .validator((data) => identitySchema.parse(data))
   .handler(async ({ data }) => {
-    const db = await getAdmin();
-    const { data: rows } = await db
-      .from("admin_telegram_ids")
-      .select("tg_id")
-      .in("tg_id", identList(data))
+    try {
+      await assertTgAdmin(data);
+      return { isAdmin: true };
+    } catch (error) {
+      if (error instanceof Error && error.message === "Forbidden") return { isAdmin: false };
+      throw error;
+    }
+  });
+
+export const adminGetDashboard = createServerFn({ method: "POST" })
+  .validator((data) => identitySchema.parse(data))
+  .handler(async ({ data }) => {
+    await assertTgAdmin(data);
+    const db = getDb();
+    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const [[playerStats], [withdrawalStats], [referralStats]] = await Promise.all([
+      db
+        .select({
+          users: sql<number>`count(*)::int`,
+          active24h: sql<number>`count(*) FILTER (WHERE ${players.updated_at} > ${dayAgo})::int`,
+          balance: sql<number>`coalesce(sum(${players.balance}), 0)::int`,
+        })
+        .from(players),
+      db
+        .select({
+          pending: sql<number>`count(*) FILTER (WHERE ${withdrawals.status} = 'pending')::int`,
+          paid: sql<number>`coalesce(sum(${withdrawals.amount}) FILTER (WHERE ${withdrawals.status} = 'approved'), 0)::int`,
+        })
+        .from(withdrawals),
+      db.select({ refs: count(referrals.referred_id) }).from(referrals),
+    ]);
+    return {
+      users: playerStats?.users ?? 0,
+      active24h: playerStats?.active24h ?? 0,
+      balance: playerStats?.balance ?? 0,
+      pending: withdrawalStats?.pending ?? 0,
+      paid: withdrawalStats?.paid ?? 0,
+      refs: referralStats?.refs ?? 0,
+    };
+  });
+
+export const adminGetUsers = createServerFn({ method: "POST" })
+  .validator((data) => identitySchema.parse(data))
+  .handler(async ({ data }) => {
+    await assertTgAdmin(data);
+    const db = getDb();
+    return db
+      .select({
+        tg_id: players.tg_id,
+        name: players.name,
+        username: players.username,
+        photo_url: players.photo_url,
+        balance: players.balance,
+        blocked: players.blocked,
+      })
+      .from(players)
+      .orderBy(desc(players.balance), desc(players.updated_at));
+  });
+
+export const adminGetReferrals = createServerFn({ method: "POST" })
+  .validator((data) => identitySchema.parse(data))
+  .handler(async ({ data }) => {
+    await assertTgAdmin(data);
+    const db = getDb();
+    const rows = await db
+      .select({
+        referred_id: referrals.referred_id,
+        referrer_id: referrals.referrer_id,
+        referred_name: referrals.referred_name,
+        photo_url: referrals.photo_url,
+        created_at: referrals.created_at,
+      })
+      .from(referrals)
+      .orderBy(desc(referrals.created_at));
+    return rows.map((row) => ({ ...row, created_at: row.created_at.toISOString() }));
+  });
+
+export const adminGetSettings = createServerFn({ method: "POST" })
+  .validator((data) => identitySchema.parse(data))
+  .handler(async ({ data }) => {
+    await assertTgAdmin(data);
+    const db = getDb();
+    const [row] = await db
+      .select({
+        task_reward: app_settings.task_reward,
+        ref_bonus: app_settings.ref_bonus,
+        min_withdraw: app_settings.min_withdraw,
+        daily_spins: app_settings.daily_spins,
+        ads_script_id: app_settings.ads_script_id,
+        daily_ads: app_settings.daily_ads,
+        ad_reward: app_settings.ad_reward,
+        ad_seconds: app_settings.ad_seconds,
+        daily_typing: app_settings.daily_typing,
+        daily_quiz: app_settings.daily_quiz,
+        support_telegram_username: app_settings.support_telegram_username,
+      })
+      .from(app_settings)
+      .where(eq(app_settings.id, 1))
       .limit(1);
-    return { isAdmin: (rows ?? []).length > 0 };
+    return (
+      row ?? {
+        task_reward: 5,
+        ref_bonus: 5,
+        min_withdraw: 50,
+        daily_spins: 2,
+        ads_script_id: "8416",
+        daily_ads: 10,
+        ad_reward: 5,
+        ad_seconds: 15,
+        daily_typing: 5,
+        daily_quiz: 5,
+        support_telegram_username: "",
+      }
+    );
+  });
+
+export const adminGetTasks = createServerFn({ method: "POST" })
+  .validator((data) => identitySchema.parse(data))
+  .handler(async ({ data }) => {
+    await assertTgAdmin(data);
+    const db = getDb();
+    return db
+      .select({
+        id: custom_tasks.id,
+        title: custom_tasks.title,
+        description: custom_tasks.description,
+        icon: custom_tasks.icon,
+        link: custom_tasks.link,
+        reward: custom_tasks.reward,
+        wait_seconds: custom_tasks.wait_seconds,
+        active: custom_tasks.active,
+      })
+      .from(custom_tasks)
+      .orderBy(desc(custom_tasks.created_at));
   });
 
 export const adminUpdateBalance = createServerFn({ method: "POST" })
-  .inputValidator((d) =>
-    identSchema.extend({ targetTgId: tgIdSchema, balance: z.number().int().min(0).max(100000000) }).parse(d),
+  .validator((data) =>
+    identitySchema
+      .extend({
+        targetTgId: z.string().trim().min(1).max(64),
+        balance: z.number().int().min(0).max(100_000_000),
+      })
+      .parse(data),
   )
   .handler(async ({ data }) => {
-    const db = await getAdmin();
-    await assertTgAdmin(db, identList(data));
-    const { error } = await db.from("players").update({ balance: data.balance }).eq("tg_id", data.targetTgId);
-    if (error) throw new Error(error.message);
+    await assertTgAdmin(data);
+    const db = getDb();
+    const [row] = await db
+      .update(players)
+      .set({ balance: data.balance, updated_at: new Date() })
+      .where(eq(players.tg_id, data.targetTgId))
+      .returning({ tg_id: players.tg_id });
+    if (!row) throw new Error("Player not found.");
     return { ok: true };
   });
 
 export const adminToggleBlock = createServerFn({ method: "POST" })
-  .inputValidator((d) => identSchema.extend({ targetTgId: tgIdSchema, blocked: z.boolean() }).parse(d))
+  .validator((data) =>
+    identitySchema
+      .extend({ targetTgId: z.string().trim().min(1).max(64), blocked: z.boolean() })
+      .parse(data),
+  )
   .handler(async ({ data }) => {
-    const db = await getAdmin();
-    await assertTgAdmin(db, identList(data));
-    const { error } = await db.from("players").update({ blocked: data.blocked }).eq("tg_id", data.targetTgId);
-    if (error) throw new Error(error.message);
+    await assertTgAdmin(data);
+    const db = getDb();
+    const [row] = await db
+      .update(players)
+      .set({ blocked: data.blocked, updated_at: new Date() })
+      .where(eq(players.tg_id, data.targetTgId))
+      .returning({ tg_id: players.tg_id });
+    if (!row) throw new Error("Player not found.");
     return { ok: true };
   });
 
-// Permanently remove a user and all their data (referrals, withdrawals, views, claims).
 export const adminDeleteUser = createServerFn({ method: "POST" })
-  .inputValidator((d) => identSchema.extend({ targetTgId: tgIdSchema }).parse(d))
+  .validator((data) =>
+    identitySchema.extend({ targetTgId: z.string().trim().min(1).max(64) }).parse(data),
+  )
   .handler(async ({ data }) => {
-    const db = await getAdmin();
-    await assertTgAdmin(db, identList(data));
-    const t = data.targetTgId;
-    for (const table of ["withdrawals", "ad_views", "job_views", "task_claims"] as const) {
-      await db.from(table).delete().eq("tg_id", t);
-    }
-    await db.from("referrals").delete().eq("referrer_id", t);
-    await db.from("referrals").delete().eq("referred_id", t);
-    const { error } = await db.from("players").delete().eq("tg_id", t);
-    if (error) throw new Error(error.message);
+    await assertTgAdmin(data);
+    const db = getDb();
+    const target = data.targetTgId;
+    await db.transaction(async (tx) => {
+      await tx.delete(withdrawals).where(eq(withdrawals.tg_id, target));
+      await tx.delete(ad_views).where(eq(ad_views.tg_id, target));
+      await tx.delete(job_views).where(eq(job_views.tg_id, target));
+      await tx.delete(task_claims).where(eq(task_claims.tg_id, target));
+      await tx.delete(admin_telegram_ids).where(eq(admin_telegram_ids.tg_id, target));
+      await tx
+        .delete(referrals)
+        .where(or(eq(referrals.referrer_id, target), eq(referrals.referred_id, target)));
+      await tx.delete(players).where(eq(players.tg_id, target));
+    });
     return { ok: true };
   });
 
 export const adminSetWithdrawal = createServerFn({ method: "POST" })
-  .inputValidator((d) =>
-    identSchema.extend({
-      id: z.string().uuid(),
-      status: z.enum(["approved", "rejected"]),
-      targetTgId: tgIdSchema,
-      amount: z.number().int().min(0),
-      reason: z.string().trim().max(300).optional(),
-    }).parse(d),
+  .validator((data) =>
+    identitySchema
+      .extend({
+        id: z.string().trim().min(1).max(100),
+        status: z.enum(["approved", "rejected"]),
+        reason: z.string().trim().max(300).optional(),
+      })
+      .parse(data),
   )
   .handler(async ({ data }) => {
-    const db = await getAdmin();
-    await assertTgAdmin(db, identList(data));
-    const { error } = await db
-      .from("withdrawals")
-      .update({ status: data.status, note: data.reason || null })
-      .eq("id", data.id)
-      .eq("status", "pending");
-    if (error) throw new Error(error.message);
-    if (data.status === "rejected") {
-      const { data: p } = await db.from("players").select("balance").eq("tg_id", data.targetTgId).maybeSingle();
-      if (p) await db.from("players").update({ balance: p.balance + data.amount }).eq("tg_id", data.targetTgId);
-    }
+    await assertTgAdmin(data);
+    const db = getDb();
+    return db.transaction(async (tx) => {
+      const [withdrawal] = await tx
+        .select({
+          tg_id: withdrawals.tg_id,
+          amount: withdrawals.amount,
+          status: withdrawals.status,
+        })
+        .from(withdrawals)
+        .where(eq(withdrawals.id, data.id))
+        .for("update")
+        .limit(1);
+      if (!withdrawal || withdrawal.status !== "pending") return { ok: false };
+
+      await tx
+        .update(withdrawals)
+        .set({ status: data.status, note: data.reason || null })
+        .where(eq(withdrawals.id, data.id));
+      if (data.status === "rejected") {
+        const balance = await creditWithin(
+          tx as unknown as BalanceExecutor,
+          withdrawal.tg_id,
+          withdrawal.amount,
+        );
+        if (balance === null) throw new Error("Withdrawal refund could not be credited.");
+      }
+      return { ok: true };
+    });
+  });
+
+export const adminEditWithdrawalNumber = createServerFn({ method: "POST" })
+  .validator((data) =>
+    identitySchema
+      .extend({
+        id: z.string().trim().min(1).max(100),
+        number: z.string().trim().min(3).max(30),
+      })
+      .parse(data),
+  )
+  .handler(async ({ data }) => {
+    await assertTgAdmin(data);
+    const db = getDb();
+    const [row] = await db
+      .update(withdrawals)
+      .set({ number: data.number })
+      .where(and(eq(withdrawals.id, data.id), eq(withdrawals.status, "pending")))
+      .returning({ id: withdrawals.id });
+    if (!row) throw new Error("Pending withdrawal not found.");
     return { ok: true };
   });
 
-// Admin can fix a wrong payment number on a pending withdrawal.
-export const adminEditWithdrawalNumber = createServerFn({ method: "POST" })
-  .inputValidator((d) =>
-    identSchema.extend({
-      id: z.string().uuid(),
-      number: z.string().trim().min(3).max(30),
-    }).parse(d),
-  )
-  .handler(async ({ data }) => {
-    const db = await getAdmin();
-    await assertTgAdmin(db, identList(data));
-    const { error } = await db
-      .from("withdrawals")
-      .update({ number: data.number })
-      .eq("id", data.id)
-      .eq("status", "pending");
-    if (error) throw new Error(error.message);
-    return { ok: true };
-  });
+const settingsSchema = z.object({
+  task_reward: z.number().int().min(0).max(100_000),
+  ref_bonus: z.number().int().min(0).max(100_000),
+  min_withdraw: z.number().int().min(0).max(10_000_000),
+  daily_spins: z.number().int().min(0).max(1000),
+  ads_script_id: z
+    .string()
+    .trim()
+    .regex(/^\d{1,12}$/),
+  daily_ads: z.number().int().min(0).max(1000),
+  ad_reward: z.number().int().min(0).max(100_000),
+  ad_seconds: z.number().int().min(0).max(600),
+  daily_typing: z.number().int().min(0).max(1000),
+  daily_quiz: z.number().int().min(0).max(1000),
+  support_telegram_username: z
+    .string()
+    .trim()
+    .max(33)
+    .transform((value) => value.replace(/^@/, ""))
+    .pipe(z.string().regex(/^(?:[A-Za-z][A-Za-z0-9_]{4,31})?$/)),
+});
 
 export const adminSaveSettings = createServerFn({ method: "POST" })
-  .inputValidator((d) =>
-    identSchema.extend({
-      task_reward: z.number().int().min(0),
-      ref_bonus: z.number().int().min(0),
-      min_withdraw: z.number().int().min(0),
-      daily_spins: z.number().int().min(0),
-      ads_script_id: z.string().trim().regex(/^\d{1,12}$/),
-      daily_ads: z.number().int().min(0).max(1000),
-      ad_reward: z.number().int().min(0).max(100000),
-      ad_seconds: z.number().int().min(0).max(600),
-      daily_typing: z.number().int().min(0).max(1000),
-      daily_quiz: z.number().int().min(0).max(1000),
-      support_telegram_username: z.string().trim().max(33).transform((v) => v.replace(/^@/, "")).pipe(z.string().regex(/^(?:[A-Za-z][A-Za-z0-9_]{4,31})?$/)),
-    }).parse(d),
-  )
+  .validator((data) => identitySchema.extend(settingsSchema.shape).parse(data))
   .handler(async ({ data }) => {
-    const db = await getAdmin();
-    await assertTgAdmin(db, identList(data));
-    const { tgId: _i1, username: _i2, ...fields } = data;
-    const { error } = await db
-      .from("app_settings")
-      .update({ ...fields, updated_at: new Date().toISOString() })
-      .eq("id", 1);
-    if (error) throw new Error(error.message);
+    await assertTgAdmin(data);
+    const db = getDb();
+    const {
+      initData: _initData,
+      tgId: _tgId,
+      name: _name,
+      username: _username,
+      photo: _photo,
+      ...fields
+    } = data;
+    await db
+      .insert(app_settings)
+      .values({ id: 1, ...fields, updated_at: new Date() })
+      .onConflictDoUpdate({ target: app_settings.id, set: { ...fields, updated_at: new Date() } });
     return { ok: true };
   });
 
 export const adminBroadcast = createServerFn({ method: "POST" })
-  .inputValidator((d) => identSchema.extend({ text: z.string().trim().min(1).max(3500) }).parse(d))
+  .validator((data) =>
+    identitySchema.extend({ text: z.string().trim().min(1).max(3500) }).parse(data),
+  )
   .handler(async ({ data }) => {
-    const db = await getAdmin();
-    await assertTgAdmin(db, identList(data));
-
-    const { data: rows } = await db
-      .from("players")
-      .select("chat_id")
-      .not("chat_id", "is", null)
-      .eq("blocked", false);
-    const ids = [...new Set((rows ?? []).map((r) => r.chat_id as number))];
-
-    const lovKey = process.env["LOVABLE_API_KEY"]!;
-    const tgKey = process.env["TELEGRAM_API_KEY"]!;
+    await assertTgAdmin(data);
+    const botToken = process.env["TELEGRAM_API_KEY"]?.trim();
+    if (!botToken) throw new Error("TELEGRAM_API_KEY is not configured.");
+    const db = getDb();
+    const rows = await db
+      .select({ tg_id: players.tg_id, chat_id: players.chat_id })
+      .from(players)
+      .where(and(eq(players.blocked, false), isNotNull(players.chat_id)));
+    const chatIds = [
+      ...new Set(rows.map((row) => row.chat_id).filter((id): id is number => id !== null)),
+    ];
     let sent = 0;
     let failed = 0;
-    for (const chat_id of ids) {
+    for (const chat_id of chatIds) {
       try {
-        const res = await fetch("https://connector-gateway.lovable.dev/telegram/sendMessage", {
+        const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
           method: "POST",
-          headers: {
-            Authorization: `Bearer ${lovKey}`,
-            "X-Connection-Api-Key": tgKey,
-            "Content-Type": "application/json",
-          },
+          headers: { "content-type": "application/json" },
           body: JSON.stringify({ chat_id, text: data.text }),
         });
-        if (res.ok) sent++;
+        if (response.ok) sent++;
         else failed++;
       } catch {
         failed++;
       }
     }
-    return { total: ids.length, sent, failed };
+    return { total: chatIds.length, sent, failed };
   });
 
 const taskSchema = z.object({
@@ -228,50 +429,57 @@ const taskSchema = z.object({
   description: z.string().trim().max(300).optional(),
   icon: z.string().trim().min(1).max(8),
   link: z.string().trim().url().max(500).optional().or(z.literal("")),
-  reward: z.number().int().min(0).max(100000),
+  reward: z.number().int().min(0).max(100_000),
   wait_seconds: z.number().int().min(0).max(600),
 });
 
 export const adminAddTask = createServerFn({ method: "POST" })
-  .inputValidator((d) => identSchema.extend({ task: taskSchema }).parse(d))
+  .validator((data) => identitySchema.extend({ task: taskSchema }).parse(data))
   .handler(async ({ data }) => {
-    const db = await getAdmin();
-    await assertTgAdmin(db, identList(data));
-    const t = data.task;
-    const { error } = await db.from("custom_tasks").insert({
-      title: t.title,
-      description: t.description || null,
-      icon: t.icon,
-      link: t.link || null,
-      reward: t.reward,
-      wait_seconds: t.wait_seconds,
+    await assertTgAdmin(data);
+    const db = getDb();
+    await db.insert(custom_tasks).values({
+      title: data.task.title,
+      description: data.task.description || null,
+      icon: data.task.icon,
+      link: data.task.link || null,
+      reward: data.task.reward,
+      wait_seconds: data.task.wait_seconds,
+      active: true,
     });
-    if (error) throw new Error(error.message);
     return { ok: true };
   });
 
 export const adminUpdateTask = createServerFn({ method: "POST" })
-  .inputValidator((d) =>
-    identSchema.extend({ id: z.string().uuid(), active: z.boolean().optional(), remove: z.boolean().optional() }).parse(d),
+  .validator((data) =>
+    identitySchema
+      .extend({
+        id: z.string().trim().min(1).max(100),
+        active: z.boolean().optional(),
+        remove: z.boolean().optional(),
+      })
+      .parse(data),
   )
   .handler(async ({ data }) => {
-    const db = await getAdmin();
-    await assertTgAdmin(db, identList(data));
-    const q = data.remove
-      ? db.from("custom_tasks").delete().eq("id", data.id)
-      : db.from("custom_tasks").update({ active: !!data.active }).eq("id", data.id);
-    const { error } = await q;
-    if (error) throw new Error(error.message);
+    await assertTgAdmin(data);
+    const db = getDb();
+    if (data.remove) {
+      await db.delete(custom_tasks).where(eq(custom_tasks.id, data.id));
+    } else {
+      await db
+        .update(custom_tasks)
+        .set({ active: !!data.active })
+        .where(eq(custom_tasks.id, data.id));
+    }
     return { ok: true };
   });
 
-// Full withdrawal list (incl. payout numbers) — admin only; numbers are hidden from the public.
+/** Full payout data is returned only after the authenticated admin check. */
 export const adminListWithdrawals = createServerFn({ method: "POST" })
-  .inputValidator((d) => identSchema.parse(d))
+  .validator((data) => identitySchema.parse(data))
   .handler(async ({ data }) => {
-    const db = await getAdmin();
-    await assertTgAdmin(db, identList(data));
-    const { data: rows, error } = await db.from("withdrawals").select("*").order("created_at", { ascending: false });
-    if (error) throw new Error("Failed to load");
-    return rows ?? [];
+    await assertTgAdmin(data);
+    const db = getDb();
+    const rows = await db.select().from(withdrawals).orderBy(desc(withdrawals.created_at));
+    return rows.map((row) => ({ ...row, created_at: row.created_at.toISOString() }));
   });

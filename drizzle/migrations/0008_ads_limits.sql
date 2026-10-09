@@ -1,1 +1,0 @@
-ALTER TABLE public.app_settings ADD COLUMN daily_ads integer NOT NULL DEFAULT 10, ADD COLUMN ad_reward integer NOT NULL DEFAULT 5;

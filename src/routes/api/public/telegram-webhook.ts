@@ -1,64 +1,84 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { createHash, timingSafeEqual } from "crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 
-const APP_URL = process.env.NODE_ENV === 'production' 
-  ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN || 'your-app.railway.app'}/`
-  : "http://localhost:3000/";
-
-export function webhookSecret(tgKey: string) {
-  return createHash("sha256").update("tg-webhook:" + tgKey).digest("hex").slice(0, 48);
+function appUrl() {
+  if (process.env["NODE_ENV"] !== "production") {
+    const port = process.env["PORT"] || "3000";
+    return `http://localhost:${port}/`;
+  }
+  const publicHost = process.env["RAILWAY_PUBLIC_DOMAIN"] || process.env["RAILWAY_STATIC_URL"];
+  if (!publicHost)
+    throw new Error("Set RAILWAY_PUBLIC_DOMAIN to enable the Telegram start webhook.");
+  const normalizedHost = publicHost.replace(/^https?:\/\//, "").replace(/\/$/, "");
+  return `https://${normalizedHost}/`;
 }
+
+export function webhookSecret(botToken: string) {
+  return createHash("sha256").update(`tg-webhook:${botToken}`).digest("hex").slice(0, 48);
+}
+
+type TelegramUpdate = {
+  message?: {
+    text?: unknown;
+    chat?: { id?: unknown };
+    from?: { first_name?: unknown };
+  };
+};
 
 export const Route = createFileRoute("/api/public/telegram-webhook")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const tgKey = process.env["TELEGRAM_API_KEY"];
-        if (!tgKey) return new Response("not configured", { status: 500 });
-        
-        const got = request.headers.get("x-telegram-bot-api-secret-token") ?? "";
-        const want = webhookSecret(tgKey);
-        
-        if (got.length !== want.length || !timingSafeEqual(Buffer.from(got), Buffer.from(want))) {
+        const botToken = process.env["TELEGRAM_API_KEY"];
+        if (!botToken) return new Response("not configured", { status: 500 });
+
+        const receivedSecret = request.headers.get("x-telegram-bot-api-secret-token") ?? "";
+        const expectedSecret = webhookSecret(botToken);
+        if (
+          receivedSecret.length !== expectedSecret.length ||
+          !timingSafeEqual(Buffer.from(receivedSecret), Buffer.from(expectedSecret))
+        ) {
           return new Response("forbidden", { status: 401 });
         }
-        
-        let update: any;
+
+        let update: TelegramUpdate;
         try {
-          update = await request.json();
+          update = (await request.json()) as TelegramUpdate;
         } catch {
           return new Response("ok");
         }
-        
-        const msg = update?.message;
-        const text: string = typeof msg?.text === "string" ? msg.text : "";
-        const chatId = msg?.chat?.id;
-        
-        if (!chatId || !text.startsWith("/start")) return new Response("ok");
 
-        const raw = text.split(/\s+/)[1] ?? "";
-        const ref = /^[A-Za-z0-9_]{1,64}$/.test(raw) ? raw : "";
-        const url = ref ? `${APP_URL}?ref=${encodeURIComponent(ref)}` : APP_URL;
-        const name = String(msg?.from?.first_name ?? "বন্ধু").slice(0, 40);
+        const message = update.message;
+        const text = typeof message?.text === "string" ? message.text : "";
+        const chatId = message?.chat?.id;
+        if (
+          (typeof chatId !== "number" && typeof chatId !== "string") ||
+          !text.startsWith("/start")
+        ) {
+          return new Response("ok");
+        }
 
-        // Direct Telegram API call instead of Lovable connector
-        await fetch(`https://api.telegram.org/bot${tgKey}/sendMessage`, {
+        const rawCode = text.trim().split(/\s+/)[1] ?? "";
+        const referralCode = /^[A-Za-z0-9_]{1,64}$/.test(rawCode) ? rawCode : "";
+        const url = appUrl();
+        const webAppUrl = referralCode ? `${url}?ref=${encodeURIComponent(referralCode)}` : url;
+        const firstName =
+          typeof message?.from?.first_name === "string"
+            ? message.from.first_name.slice(0, 40)
+            : "বন্ধু";
+
+        await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          headers: { "content-type": "application/json" },
           body: JSON.stringify({
             chat_id: chatId,
-            text: `স্বাগতম ${name}! 🎉\n\nনিচের বাটনে চাপ দিয়ে অ্যাপ খুলুন, কাজ করে টাকা আয় করুন।`,
-            reply_markup: { 
-              inline_keyboard: [[{ 
-                text: "🚀 অ্যাপ খুলুন", 
-                web_app: { url } 
-              }]] 
+            text: `স্বাগতম ${firstName}! 🎉\n\nনিচের বাটনে চাপ দিয়ে অ্যাপ খুলুন, কাজ করে টাকা আয় করুন।`,
+            reply_markup: {
+              inline_keyboard: [[{ text: "🚀 অ্যাপ খুলুন", web_app: { url: webAppUrl } }]],
             },
           }),
         }).catch(() => {});
-        
+
         return new Response("ok");
       },
     },

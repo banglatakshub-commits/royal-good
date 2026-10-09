@@ -1,104 +1,71 @@
-# Life Good - Telegram Mini App
+# Life Good — Telegram Mini App
 
-একটি আধুনিক Telegram Mini App যেখানে ইউজাররা বিভিন্ন টাস্ক করে আয় করতে পারেন।
+একটি Telegram Mini App যেখানে ইউজাররা টাস্ক করে রিওয়ার্ড পান। অ্যাপটি **Railway PostgreSQL**-এ Drizzle ORM দিয়ে ডেটা সংরক্ষণ করে।
 
-## ✨ Features
+## Features
 
-- 🎯 **Typing Job** - টাইপিং করে আয়
-- 🧠 **Quiz Job** - প্রশ্ন উত্তর করে আয়  
-- 📺 **Ads Video** - ভিডিও দেখে আয়
-- 🎰 **Daily Spin** - দৈনিক স্পিন করে রিওয়ার্ড
-- 👥 **Refer & Earn** - বন্ধুদের রেফার করে বোনাস
-- 💰 **Withdraw System** - সহজে টাকা তুলে নিন
-- 🏆 **Leaderboard** - র‍্যাঙ্কিং সিস্টেম
-- 👨‍💼 **Admin Panel** - সম্পূর্ণ ম্যানেজমেন্ট
+- Typing, quiz, ads video এবং daily spin-এর রিওয়ার্ড
+- Referral ও withdrawal
+- Leaderboard এবং admin dashboard
+- React 19, TanStack Start/Router, Tailwind CSS, Drizzle ORM ও PostgreSQL
 
-## 🚀 Tech Stack
-
-- **Frontend:** React 19 + TypeScript + TanStack Router
-- **Styling:** Tailwind CSS 4.x + Radix UI
-- **3D Graphics:** React Three Fiber
-- **Database:** PostgreSQL (Railway/Supabase)
-- **ORM:** Drizzle ORM
-- **Build:** Vite + Bun
-
-## 🎨 Design Highlights
-
-- 💎 রাজকীয় নীল-গোলাপী থিম
-- 🦁 Interactive 3D Lion Gem 
-- 🎬 Cinematic intro animation
-- 📱 Mobile-first responsive design
-- 🌍 Bengali language support
-
-## 🔧 Development
+## Local development
 
 ```bash
-# Install dependencies
 bun install
-
-# Run development server
+cp .env.example .env
+# .env-এ DATABASE_URL এবং TELEGRAM_API_KEY সেট করুন
+bun run db:migrate
 bun run dev
-
-# Build for production
-bun run build
-
-# Preview production build
-bun run preview
 ```
 
-## 🚢 Deployment
+`DATABASE_URL` অবশ্যই PostgreSQL connection URL হতে হবে। Development mode-এ Telegram ছাড়া UI preview করা যায়; deployed production-এ signed Telegram Mini App `initData` যাচাই করা হয়।
 
-### Railway
+## Railway deployment
 
-1. Connect your GitHub repo to Railway
-2. Add PostgreSQL database
-3. Set environment variables
-4. Deploy!
+1. Railway project-এ এই GitHub repository-র app service এবং একটি PostgreSQL service রাখুন।
+2. App service-এর `DATABASE_URL` variable-টি PostgreSQL service-এর URL reference-এ সেট করুন; যেমন service-এর নাম `Postgres` হলে `${{Postgres.DATABASE_URL}}`।
+3. App service-এ নিচের variables দিন:
+   - `TELEGRAM_API_KEY` — BotFather-এর bot token; Telegram `initData` validation এবং broadcast-এর জন্য।
+   - `ADMIN_TELEGRAM_IDS` — admin-এর Telegram numeric ID/username-গুলো comma-separated list হিসেবে। `shanto_as` admin alias-টি migration-এ প্রাথমিকভাবে রাখা আছে।
+   - `NODE_ENV=production`
+   - ঐচ্ছিক: `DATABASE_POOL_SIZE=5`
+4. Deploy করুন। Build ধাপে `bun install --frozen-lockfile` ও production build হয়। Start ধাপে `bun run db:migrate` চালিয়ে তারপর অ্যাপ চালু হয়; আলাদা managed database account বা SQL editor দরকার নেই।
 
-### Environment Variables
+Railway PostgreSQL service-কে app service-এর সঙ্গে variable reference দিয়ে link করা জরুরি—শুধু service একই project-এ থাকলেই `DATABASE_URL` app-এ আসবে এমন নয়।
 
-```env
-DATABASE_URL=postgresql://username:password@host:port/dbname
-NODE_ENV=production
-```
+## PostgreSQL ও migrations
 
-## 📱 Telegram Bot Setup
-
-1. Create a Telegram bot via @BotFather
-2. Set the web app URL in bot settings
-3. Configure webhook (optional)
-
-## 🗄️ Database
-
-Uses Drizzle ORM with PostgreSQL. Migrations are in `/drizzle/migrations/`
+Drizzle schema: `drizzle/schema.ts`। Versioned Railway/PostgreSQL migration: `drizzle/migrations/`। Deployment startup-এ migration স্বয়ংক্রিয়ভাবে চলে। Local/manual migration command:
 
 ```bash
-# Generate migration
-bun run db:generate
-
-# Run migration  
 bun run db:migrate
+```
 
-# Open Drizzle Studio
+নতুন schema পরিবর্তনের জন্য:
+
+```bash
+bun run db:generate
+```
+
+Migration বর্তমান Railway schema-র legacy column নামগুলোও যতটা সম্ভব canonical schema-তে রূপান্তর করে। অন্য PostgreSQL database থেকে Railway-এ পুরোনো **ডেটা** স্থানান্তর এই code migration-এর অংশ নয়; পুরোনো রেকর্ড রাখতে হলে deploy-এর আগে PostgreSQL dump/restore বা উপযুক্ত data import করতে হবে।
+
+## Security/configuration notes
+
+- Production server `TELEGRAM_API_KEY` দিয়ে signed Mini App `initData` যাচাই করে; client পাঠানো Telegram ID-কে একা বিশ্বাস করে না।
+- Admin access `ADMIN_TELEGRAM_IDS` অথবা `admin_telegram_ids` table-এর allowlist দিয়ে নিয়ন্ত্রিত। প্রথম যে user অ্যাপ খুলবে সে admin হয় না।
+- Payout number public endpoints-এ ফেরত দেওয়া হয় না; এটি শুধু সংশ্লিষ্ট user-এর history ও authenticated admin panel-এ ব্যবহৃত হয়।
+- Database credentials কখনো Git-এ commit করবেন না। `.env` ফাইল `.gitignore`-এ আছে।
+
+## Useful commands
+
+```bash
+bun run dev
+bun run build
+bun run preview
+bun run lint
+bun run test
+bun run db:generate
+bun run db:migrate
 bun run db:studio
 ```
-
-## 👤 Admin Panel
-
-Access admin panel at `/admin` route. First registered user becomes admin automatically.
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create feature branch
-3. Commit changes
-4. Push to branch
-5. Create Pull Request
-
-## 📄 License
-
-This project is private and proprietary.
-
----
-
-Built with ❤️ using modern web technologies
