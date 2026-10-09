@@ -1,5 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { createHash, timingSafeEqual } from "node:crypto";
+import { timingSafeEqual } from "node:crypto";
+import { webhookSecret } from "@/lib/telegram-webhook-secret";
+
+export { webhookSecret };
 
 /** Mini App link opened by the /start button. Override with MINI_APP_URL if needed. */
 export const MINI_APP_URL = "https://royal-good-production.up.railway.app/";
@@ -62,10 +65,6 @@ export function buildWelcomeMessage(firstName: string, referralCode = "") {
   };
 }
 
-export function webhookSecret(botToken: string) {
-  return createHash("sha256").update(`tg-webhook:${botToken}`).digest("hex").slice(0, 48);
-}
-
 type TelegramUpdate = {
   message?: {
     text?: unknown;
@@ -74,6 +73,7 @@ type TelegramUpdate = {
   };
 };
 
+/** Any message (text, photo, sticker, …) gets the welcome + Start button; /start may carry a referral code. */
 export const Route = createFileRoute("/api/public/telegram-webhook")({
   server: {
     handlers: {
@@ -98,16 +98,14 @@ export const Route = createFileRoute("/api/public/telegram-webhook")({
         }
 
         const message = update.message;
-        const text = typeof message?.text === "string" ? message.text : "";
+        const text = typeof message?.text === "string" ? message.text.trim() : "";
         const chatId = message?.chat?.id;
-        if (
-          (typeof chatId !== "number" && typeof chatId !== "string") ||
-          !text.startsWith("/start")
-        ) {
+        if (typeof chatId !== "number" && typeof chatId !== "string") {
           return new Response("ok");
         }
 
-        const rawCode = text.trim().split(/\s+/)[1] ?? "";
+        const isStart = /^\/start(@\w+)?(\s|$)/.test(text);
+        const rawCode = isStart ? (text.split(/\s+/)[1] ?? "") : "";
         const referralCode = /^[A-Za-z0-9_]{1,64}$/.test(rawCode) ? rawCode : "";
         const firstName =
           typeof message?.from?.first_name === "string"

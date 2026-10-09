@@ -21,6 +21,16 @@ bun run dev
 
 `DATABASE_URL` অবশ্যই PostgreSQL connection URL হতে হবে। Development mode-এ Telegram ছাড়া UI preview করা যায়; deployed production-এ signed Telegram Mini App `initData` যাচাই করা হয়।
 
+## Telegram bot webhook
+
+Bot-এ `/start` বা যেকোনো মেসেজের উত্তর আসতে হলে Telegram-কে webhook জানাতে হবে। Deploy হওয়ার পর একবার চালান (`TELEGRAM_API_KEY` সেট থাকতে হবে):
+
+```bash
+bun run telegram:webhook
+# অথবা নির্দিষ্ট domain দিয়ে:
+bun run telegram:webhook -- https://your-app.up.railway.app
+```
+
 ## Railway deployment
 
 1. Railway project-এ এই GitHub repository-র app service এবং একটি PostgreSQL service রাখুন।
