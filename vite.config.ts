@@ -12,4 +12,16 @@ export default defineConfig({
     // nitro/vite builds from this
     server: { entry: "server" },
   },
+  vite: {
+    server: {
+      host: true,
+      preview: {
+        allowedHosts: [
+          "royal-good-production.up.railway.app",
+          ".railway.app",
+          "localhost"
+        ]
+      }
+    }
+  }
 });

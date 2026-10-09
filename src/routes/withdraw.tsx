@@ -6,7 +6,9 @@ import { PageShell } from "@/components/AppShell";
 import { useBalance, setServerBalance } from "@/lib/wallet";
 import { requestWithdraw } from "@/lib/earn.functions";
 import { settings, loadSettings } from "@/lib/settings";
-import { supabase } from "@/integrations/supabase/client";
+import { db } from "@/lib/database";
+import { withdrawals } from "../../drizzle/schema";
+import { eq, desc } from "drizzle-orm";
 import { getTgUser } from "@/lib/telegram";
 
 export const Route = createFileRoute("/withdraw")({

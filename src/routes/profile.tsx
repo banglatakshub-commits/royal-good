@@ -7,7 +7,6 @@ import { getTgUser } from "@/lib/telegram";
 import { bindAdminId, ensureTgAdmin } from "@/lib/admin.functions";
 import { BottomNav } from "@/components/BottomNav";
 import { WithdrawBanner } from "@/components/WithdrawBanner";
-import { supabase } from "@/integrations/supabase/client";
 import { supportUsernameSchema } from "@/lib/support";
 
 export const Route = createFileRoute("/profile")({
