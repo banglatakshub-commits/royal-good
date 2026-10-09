@@ -579,6 +579,9 @@ function SettingsTab() {
     nek_secret_key: "",
   });
   const [saved, setSaved] = useState("");
+  // Shown to the admin so the Nekpayment callback URL can be copied; read after mount to stay SSR-safe.
+  const [callbackUrl, setCallbackUrl] = useState("");
+  useEffect(() => setCallbackUrl(window.location.origin), []);
   useEffect(() => {
     if (data)
       setForm({
@@ -691,6 +694,12 @@ function SettingsTab() {
           className="mt-1 w-full rounded-xl border bg-background px-3 py-2"
         />
       </label>
+      <p className="text-xs text-muted-foreground">
+        Nekpayment dashboard-এ Callback URL হিসেবে এটি দিন:{" "}
+        <code className="break-all text-foreground">
+          {callbackUrl}/api/public/nekpayment-webhook
+        </code>
+      </p>
       <button
         onClick={save}
         className="header-grad w-full rounded-xl py-3 font-bold text-primary-foreground"

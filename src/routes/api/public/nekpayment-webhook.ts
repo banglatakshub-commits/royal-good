@@ -29,6 +29,23 @@ async function readNotificationParams(request: Request): Promise<NotificationPar
 }
 
 /**
+ * Logs the outcome of a callback together with the proxy headers, so the real source address
+ * can be checked in Railway logs. Signatures and secrets are never logged.
+ */
+function logCallback(verdict: string, request: Request, fields: Record<string, string> = {}): void {
+  const clip = (value: string | null) => (value ?? "").slice(0, 200) || undefined;
+  console.info(
+    "Nekpayment callback",
+    JSON.stringify({
+      verdict,
+      forwardedFor: clip(request.headers.get("x-forwarded-for")),
+      realIp: clip(request.headers.get("x-real-ip")),
+      ...fields,
+    }),
+  );
+}
+
+/**
  * Marks a pending activation payment as paid and activates its player.
  * The conditional update runs first, so a repeated or concurrent notification cannot activate twice.
  */
@@ -66,11 +83,15 @@ export const Route = createFileRoute("/api/public/nekpayment-webhook")({
         try {
           params = await readNotificationParams(request);
         } catch {
+          logCallback("malformed", request);
           return new Response("Malformed notification", { status: 400 });
         }
 
         const transactionId = params["merTransferId"]?.trim();
-        if (!transactionId) return new Response("Missing merTransferId", { status: 400 });
+        if (!transactionId) {
+          logCallback("missing_transaction_id", request);
+          return new Response("Missing merTransferId", { status: 400 });
+        }
 
         try {
           const [settingRow] = await getDb()
@@ -82,21 +103,28 @@ export const Route = createFileRoute("/api/public/nekpayment-webhook")({
 
           // Fail closed: without the merchant secret a notification cannot be authenticated,
           // so it must never change a payment or activate an account.
-          if (!secretKey) return new Response("Gateway secret is not configured", { status: 503 });
+          if (!secretKey) {
+            logCallback("secret_not_configured", request, { transactionId });
+            return new Response("Gateway secret is not configured", { status: 503 });
+          }
           if (!verifyNekSign(params, secretKey, params["sign"])) {
+            logCallback("invalid_signature", request, { transactionId });
             return new Response("Invalid signature", { status: 403 });
           }
 
           // Gateway codes: 1 = success, 2 = failed.
-          if (params["tradeResult"] === "1") {
+          const tradeResult = params["tradeResult"] ?? "";
+          if (tradeResult === "1") {
             await activatePaidTransaction(transactionId);
-          } else if (params["tradeResult"] === "2") {
+          } else if (tradeResult === "2") {
             await markPaymentFailed(transactionId);
           }
+          logCallback("accepted", request, { transactionId, tradeResult });
 
           // Nekpayment keeps re-sending a notification until it receives "success".
           return new Response("success", { status: 200 });
         } catch (error) {
+          logCallback("processing_error", request, { transactionId });
           console.error("Nekpayment webhook error:", error);
           return new Response("error", { status: 500 });
         }
