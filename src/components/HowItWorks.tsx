@@ -33,32 +33,60 @@ function Screen({ kind, step }: { kind: Kind; step: number }) {
       </div>
     );
   if (kind === "ads") {
-    if (step === 0) return <div className="hiw-tap rounded-lg header-grad px-3 py-2 text-xs font-semibold text-primary-foreground">▶ ভিডিও শুরু করুন</div>;
+    if (step === 0)
+      return (
+        <div className="hiw-tap rounded-lg header-grad px-3 py-2 text-xs font-semibold text-primary-foreground">
+          ▶ ভিডিও শুরু করুন
+        </div>
+      );
     return (
       <div className="w-full px-3 text-center">
         <div className="text-2xl">{step === 1 ? "📺" : "⛔"}</div>
         <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-tile">
           <div key={step} className="hiw-bar h-full bg-primary" />
         </div>
-        <p className="mt-1 text-[10px] text-muted-foreground">{step === 1 ? "এড চলছে…" : "আগে বন্ধ = রিওয়ার্ড নেই"}</p>
+        <p className="mt-1 text-[10px] text-muted-foreground">
+          {step === 1 ? "এড চলছে…" : "আগে বন্ধ = রিওয়ার্ড নেই"}
+        </p>
       </div>
     );
   }
   if (kind === "quiz") {
-    if (step === 0) return <div className="hiw-tap rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground">Start Quiz</div>;
+    if (step === 0)
+      return (
+        <div className="hiw-tap rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground">
+          Start Quiz
+        </div>
+      );
     return (
       <div className="w-full space-y-1 px-3">
         {["A", "B", "C"].map((o, i) => (
-          <div key={o} className={`rounded-md border px-2 py-1 text-[10px] ${i === 1 ? "hiw-pick" : ""}`}>{o}. উত্তর</div>
+          <div
+            key={o}
+            className={`rounded-md border px-2 py-1 text-[10px] ${i === 1 ? "hiw-pick" : ""}`}
+          >
+            {o}. উত্তর
+          </div>
         ))}
       </div>
     );
   }
-  if (step === 0) return <div className="hiw-tap rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground">Start Typing</div>;
+  if (step === 0)
+    return (
+      <div className="hiw-tap rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground">
+        Start Typing
+      </div>
+    );
   return (
     <div className="text-center">
-      <p className="font-display text-xl">7 <span className="text-primary">+</span> 5</p>
-      <div className="mt-1 rounded-md border px-4 py-1 text-sm"><span className="hiw-type inline-block overflow-hidden whitespace-nowrap align-bottom">12</span></div>
+      <p className="font-display text-xl">
+        7 <span className="text-primary">+</span> 5
+      </p>
+      <div className="mt-1 rounded-md border px-4 py-1 text-sm">
+        <span className="hiw-type inline-block overflow-hidden whitespace-nowrap align-bottom">
+          12
+        </span>
+      </div>
     </div>
   );
 }
@@ -82,7 +110,10 @@ export function HowItWorks({ kind }: { kind: Kind }) {
         </div>
         <ol className="flex-1 space-y-2">
           {steps.map((s, i) => (
-            <li key={i} className={`flex items-center gap-2 rounded-lg p-1.5 text-xs transition-all duration-500 ${i === step ? "bg-tile font-semibold text-foreground scale-[1.03]" : "text-muted-foreground"}`}>
+            <li
+              key={i}
+              className={`flex items-center gap-2 rounded-lg p-1.5 text-xs transition-all duration-500 ${i === step ? "bg-tile font-semibold text-foreground scale-[1.03]" : "text-muted-foreground"}`}
+            >
               <span className="text-base">{s.icon}</span>
               {s.title}
             </li>
@@ -91,7 +122,10 @@ export function HowItWorks({ kind }: { kind: Kind }) {
       </div>
       <div className="mt-3 flex justify-center gap-1.5">
         {steps.map((_, i) => (
-          <span key={i} className={`h-1.5 rounded-full transition-all duration-500 ${i === step ? "w-5 bg-primary" : "w-1.5 bg-tile"}`} />
+          <span
+            key={i}
+            className={`h-1.5 rounded-full transition-all duration-500 ${i === step ? "w-5 bg-primary" : "w-1.5 bg-tile"}`}
+          />
         ))}
       </div>
       <style>{`

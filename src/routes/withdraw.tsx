@@ -4,7 +4,7 @@ import { CheckCircle2, Clock, History, Smartphone, XCircle } from "lucide-react"
 import { BottomNav } from "@/components/BottomNav";
 import { PageShell } from "@/components/AppShell";
 import { useBalance, setServerBalance } from "@/lib/wallet";
-import { getMyWithdrawalHistory, requestWithdraw } from "@/lib/earn.functions";
+import { getMyWithdrawalHistory, requestWithdraw, generatePaymentUrl } from "@/lib/earn.functions";
 import { settings, loadSettings } from "@/lib/settings";
 import { getTgIdentity } from "@/lib/telegram";
 
@@ -55,13 +55,17 @@ function WithdrawPage() {
   const [history, setHistory] = useState<Req[]>([]);
   const [MIN, setMin] = useState(settings.min_withdraw);
   const [rejectedCount, setRejectedCount] = useState(0);
+  const [isActive, setIsActive] = useState(true);
+  const [activationFee, setActivationFee] = useState(100);
+  const [showActivationPopup, setShowActivationPopup] = useState(false);
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   // প্রতিটি রিজেক্টেড উইথড্রের জন্য সর্বনিম্ন উইথড্র ডাবল হয় (সর্বোচ্চ ৮ গুণ)
   const effectiveMin = MIN * Math.min(2 ** rejectedCount, 8);
   useEffect(() => {
     setHistory(loadHistory());
     void loadSettings().then((x) => setMin(x.min_withdraw));
     void getMyWithdrawalHistory({ data: getTgIdentity() })
-      .then(({ rows, rejectedCount: count }) => {
+      .then(({ rows, rejectedCount: count, isActive, activationFee }) => {
         setHistory(
           rows.map((row) => ({
             amount: row.amount,
@@ -73,6 +77,8 @@ function WithdrawPage() {
           })),
         );
         setRejectedCount(count);
+        setIsActive(isActive);
+        setActivationFee(activationFee);
       })
       .catch((historyError: unknown) =>
         console.error("Withdrawal history load error:", historyError),
@@ -80,6 +86,10 @@ function WithdrawPage() {
   }, []);
 
   const submit = async () => {
+    if (!isActive) {
+      setShowActivationPopup(true);
+      return;
+    }
     const amt = Number(amount);
     if (amt < effectiveMin) return setError(`সর্বনিম্ন উইথড্র ৳${effectiveMin}`);
     if (amt > balance) return setError("পর্যাপ্ত ব্যালেন্স নেই");
@@ -105,6 +115,59 @@ function WithdrawPage() {
     setError("");
     setDone(true);
   };
+
+  const handlePayment = async () => {
+    setIsProcessingPayment(true);
+    try {
+      const res = await generatePaymentUrl({ data: getTgIdentity() });
+      if (res.ok && res.url) {
+        window.location.href = res.url;
+      } else {
+        alert("পেমেন্ট গেটওয়েতে সমস্যা হয়েছে");
+        setIsProcessingPayment(false);
+      }
+    } catch (e) {
+      alert("সমস্যা হয়েছে");
+      setIsProcessingPayment(false);
+    }
+  };
+
+  if (showActivationPopup) {
+    return (
+      <PageShell title="অ্যাকাউন্ট অ্যাক্টিভ করুন">
+        <div className="flex flex-col items-center px-6 pt-20 text-center">
+          <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+            <XCircle className="h-8 w-8" />
+          </div>
+          <h2 className="font-display text-2xl font-bold text-primary-deep">
+            অ্যাকাউন্ট অ্যাক্টিভ নয়
+          </h2>
+          <p className="mt-4 text-sm text-muted-foreground">
+            উইথড্র করার জন্য আপনার অ্যাকাউন্ট অ্যাক্টিভ করতে হবে। অ্যাকাউন্ট অ্যাক্টিভ ফি ৳
+            {activationFee}।
+          </p>
+          <div className="mt-8 w-full max-w-sm space-y-3">
+            <button
+              onClick={handlePayment}
+              disabled={isProcessingPayment}
+              className="header-grad flex w-full items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-bold text-primary-foreground shadow-card disabled:opacity-60"
+            >
+              {isProcessingPayment
+                ? "অপেক্ষা করুন..."
+                : `বিকাশ/নগদ দিয়ে পে করুন (৳${activationFee})`}
+            </button>
+            <button
+              onClick={() => setShowActivationPopup(false)}
+              className="w-full rounded-xl border bg-card py-3.5 text-sm font-bold text-muted-foreground shadow-sm"
+            >
+              ফিরে যান
+            </button>
+          </div>
+        </div>
+        <BottomNav active="withdraw" />
+      </PageShell>
+    );
+  }
 
   if (done) {
     return (

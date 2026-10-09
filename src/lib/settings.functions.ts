@@ -15,6 +15,9 @@ export const DEFAULT_APP_SETTINGS = {
   daily_typing: 5,
   daily_quiz: 5,
   support_telegram_username: "",
+  activation_fee: 100,
+  nek_api_key: "",
+  nek_secret_key: "",
 } as const;
 
 export const getAppSettings = createServerFn({ method: "GET" }).handler(async () => {
@@ -34,5 +37,8 @@ export const getAppSettings = createServerFn({ method: "GET" }).handler(async ()
     daily_typing: row.daily_typing,
     daily_quiz: row.daily_quiz,
     support_telegram_username: row.support_telegram_username,
+    activation_fee: row.activation_fee,
+    nek_api_key: row.nek_api_key,
+    nek_secret_key: row.nek_secret_key,
   };
 });

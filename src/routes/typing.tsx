@@ -32,18 +32,26 @@ function Typing() {
   const [err, setErr] = useState(false);
   const [done, setDone] = useState(false);
   const job = useJobLimit("typing");
-  const finish = async () => { if (await job.record()) setDone(true); else setStarted(false); };
+  const finish = async () => {
+    if (await job.record()) setDone(true);
+    else setStarted(false);
+  };
 
   const [a, b] = qs[Math.min(i, 2)] ?? [0, 0];
   const last = i === 2;
 
   const next = async () => {
     if (busy) return;
-    if (Number(ans) !== a + b) { setErr(true); return; }
-    setErr(false); setBusy(true);
+    if (Number(ans) !== a + b) {
+      setErr(true);
+      return;
+    }
+    setErr(false);
+    setBusy(true);
     setAns("");
     try {
-      if (last) await finish(); else setI(i + 1);
+      if (last) await finish();
+      else setI(i + 1);
     } finally {
       setBusy(false);
     }
@@ -53,20 +61,32 @@ function Typing() {
     <PageShell title={!started ? "Typing Job" : done ? "Typing Complete" : `Typing ${i + 1}/3`}>
       {!started ? (
         <>
-        <LimitInfo st={job.st} left={job.left} />
-        {job.left !== 0 && <JobIntro title="Typing Job" desc="Solve 3 math problems correctly and earn rewards! Test your skills and get paid." cta="Start Typing" onStart={() => setStarted(true)} />}
-        <HowItWorks kind="typing" />
+          <LimitInfo st={job.st} left={job.left} />
+          {job.left !== 0 && (
+            <JobIntro
+              title="Typing Job"
+              desc="Solve 3 math problems correctly and earn rewards! Test your skills and get paid."
+              cta="Start Typing"
+              onStart={() => setStarted(true)}
+            />
+          )}
+          <HowItWorks kind="typing" />
         </>
       ) : done ? (
         <RewardDone text="You solved all 3 problems correctly!" score="3/3" />
       ) : (
         <div className="rounded-2xl bg-card p-4 shadow-card">
           <div className="mb-4 h-2 rounded-full bg-secondary">
-            <div className="h-2 rounded-full bg-primary transition-all" style={{ width: `${((i + 1) / 3) * 100}%` }} />
+            <div
+              className="h-2 rounded-full bg-primary transition-all"
+              style={{ width: `${((i + 1) / 3) * 100}%` }}
+            />
           </div>
           <div className="mb-3 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-tile font-semibold text-primary">{i + 1}</span>
+              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-tile font-semibold text-primary">
+                {i + 1}
+              </span>
               <div>
                 <p className="font-semibold">Typing {i + 1}</p>
                 <p className="text-xs text-muted-foreground">{i} completed</p>
@@ -88,7 +108,10 @@ function Typing() {
           <input
             inputMode="numeric"
             value={ans}
-            onChange={(e) => { setAns(e.target.value.replace(/\D/g, "")); setErr(false); }}
+            onChange={(e) => {
+              setAns(e.target.value.replace(/\D/g, ""));
+              setErr(false);
+            }}
             placeholder="Enter answer"
             className="mt-1 w-full rounded-xl border bg-card py-3 text-center text-lg outline-none focus:border-primary"
           />
@@ -98,7 +121,15 @@ function Typing() {
             onClick={next}
             className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 font-semibold text-primary-foreground disabled:bg-secondary disabled:text-muted-foreground"
           >
-            {busy ? <><Loader2 className="h-4 w-4 animate-spin" /> Processing...</> : <>{last ? "Submit Typing" : "Next Typing"} <ArrowRight className="h-4 w-4" /></>}
+            {busy ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" /> Processing...
+              </>
+            ) : (
+              <>
+                {last ? "Submit Typing" : "Next Typing"} <ArrowRight className="h-4 w-4" />
+              </>
+            )}
           </button>
         </div>
       )}

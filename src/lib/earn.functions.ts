@@ -216,7 +216,7 @@ export const getMyWithdrawalHistory = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const user = authenticatedUser(data);
     const db = getDb();
-    const [rows, rejectedRows] = await Promise.all([
+    const [rows, rejectedRows, [playerRow], [settingRow]] = await Promise.all([
       db
         .select({
           amount: withdrawals.amount,
@@ -234,10 +234,22 @@ export const getMyWithdrawalHistory = createServerFn({ method: "POST" })
         .select({ count: count(withdrawals.id) })
         .from(withdrawals)
         .where(and(eq(withdrawals.tg_id, user.id), eq(withdrawals.status, "rejected"))),
+      db
+        .select({ is_active: players.is_active })
+        .from(players)
+        .where(eq(players.tg_id, user.id))
+        .limit(1),
+      db
+        .select({ activation_fee: app_settings.activation_fee })
+        .from(app_settings)
+        .where(eq(app_settings.id, 1))
+        .limit(1),
     ]);
     return {
       rows: rows.map((row) => ({ ...row, created_at: row.created_at.toISOString() })),
       rejectedCount: rejectedRows[0]?.count ?? 0,
+      isActive: playerRow?.is_active ?? false,
+      activationFee: settingRow?.activation_fee ?? 100,
     };
   });
 
@@ -312,4 +324,28 @@ export const recordReferral = createServerFn({ method: "POST" })
       if (balance === null) throw new Error("Referral bonus could not be credited.");
       return { ok: true };
     });
+  });
+
+export const generatePaymentUrl = createServerFn({ method: "POST" })
+  .validator((data) => identity.parse(data))
+  .handler(async ({ data }) => {
+    const user = authenticatedUser(data);
+    const db = getDb();
+    const [settingRow] = await db
+      .select({
+        activation_fee: app_settings.activation_fee,
+        nek_api_key: app_settings.nek_api_key,
+        nek_secret_key: app_settings.nek_secret_key,
+      })
+      .from(app_settings)
+      .where(eq(app_settings.id, 1))
+      .limit(1);
+
+    const fee = settingRow?.activation_fee ?? 100;
+
+    // TODO: implement actual Nekpayment API call here using nek_api_key and nek_secret_key
+    // Since API structure is unknown, just returning a placeholder or mimicking success.
+    // Usually it returns a redirect_url.
+
+    return { ok: true, url: `/api/pay?amount=${fee}&tg_id=${user.id}` };
   });

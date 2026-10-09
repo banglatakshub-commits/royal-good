@@ -22,6 +22,7 @@ export const players = pgTable("players", {
   updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   chat_id: bigint("chat_id", { mode: "number" }),
   blocked: boolean("blocked").notNull().default(false),
+  is_active: boolean("is_active").notNull().default(false),
 });
 
 export const referrals = pgTable(
@@ -85,6 +86,9 @@ export const app_settings = pgTable("app_settings", {
   daily_typing: integer("daily_typing").notNull().default(5),
   daily_quiz: integer("daily_quiz").notNull().default(5),
   support_telegram_username: text("support_telegram_username").notNull().default(""),
+  activation_fee: integer("activation_fee").notNull().default(100),
+  nek_api_key: text("nek_api_key").notNull().default(""),
+  nek_secret_key: text("nek_secret_key").notNull().default(""),
   updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -127,3 +131,18 @@ export const admin_telegram_ids = pgTable("admin_telegram_ids", {
   tg_id: text("tg_id").primaryKey(),
   created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const payment_transactions = pgTable(
+  "payment_transactions",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    tg_id: text("tg_id").notNull(),
+    amount: integer("amount").notNull(),
+    status: text("status").notNull().default("pending"),
+    created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("payment_transactions_tg_idx").on(table.tg_id)],
+);

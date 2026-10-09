@@ -4,7 +4,15 @@ import { Link } from "@tanstack/react-router";
 import { refreshBalance, useBalance } from "@/lib/wallet";
 import { settings } from "@/lib/settings";
 
-export function RewardDone({ text, score, amount }: { text: string; score: string; amount?: number }) {
+export function RewardDone({
+  text,
+  score,
+  amount,
+}: {
+  text: string;
+  score: string;
+  amount?: number;
+}) {
   const credited = useRef(false);
   const balance = useBalance();
   const [amt] = useState(amount ?? settings.task_reward);

@@ -81,6 +81,24 @@ export const fetchMyBalance = createServerFn({ method: "POST" })
     return row?.balance ?? 0;
   });
 
+/** Read the authenticated user's activation status from PostgreSQL. */
+export const fetchMyActivation = createServerFn({ method: "POST" })
+  .validator((data) =>
+    identity
+      .pick({ initData: true, tgId: true, name: true, username: true, photo: true })
+      .parse(data),
+  )
+  .handler(async ({ data }) => {
+    const tgId = authenticatedId(data);
+    const db = getDb();
+    const [row] = await db
+      .select({ is_active: players.is_active })
+      .from(players)
+      .where(eq(players.tg_id, tgId))
+      .limit(1);
+    return row?.is_active ?? false;
+  });
+
 /** Public leaderboard; profile identifiers and contact details are not exposed. */
 export const fetchLeaderboard = createServerFn({ method: "POST" })
   .validator((data) =>
