@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createHash, timingSafeEqual } from "node:crypto";
+import { sendStartGreeting } from "@/lib/telegram-start.server";
 
 function appUrl() {
   if (process.env["NODE_ENV"] !== "production") {
@@ -67,17 +68,7 @@ export const Route = createFileRoute("/api/public/telegram-webhook")({
             ? message.from.first_name.slice(0, 40)
             : "বন্ধু";
 
-        await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            chat_id: chatId,
-            text: `স্বাগতম ${firstName}! 🎉\n\nনিচের বাটনে চাপ দিয়ে অ্যাপ খুলুন, কাজ করে টাকা আয় করুন।`,
-            reply_markup: {
-              inline_keyboard: [[{ text: "🚀 অ্যাপ খুলুন", web_app: { url: webAppUrl } }]],
-            },
-          }),
-        }).catch(() => {});
+        await sendStartGreeting(botToken, chatId, firstName, webAppUrl);
 
         return new Response("ok");
       },
