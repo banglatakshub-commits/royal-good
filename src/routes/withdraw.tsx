@@ -366,9 +366,9 @@ function WithdrawPage() {
 
         {/* Verified banner: shown once the account is active (and not blocked). */}
         {isActive && !isBlocked && (
-          <div className="flex items-center justify-center gap-2 rounded-2xl border border-primary/30 bg-primary/5 p-3 text-primary">
-            <ShieldCheck className="h-4 w-4 shrink-0" />
-            <p className="text-sm font-bold">আপনার অ্যাকাউন্ট ভেরিফাইড ✅</p>
+          <div className="flex items-center justify-center gap-2 rounded-2xl border-2 border-green-500 bg-green-100 p-3 text-green-700 shadow-sm">
+            <ShieldCheck className="h-5 w-5 shrink-0" />
+            <p className="text-sm font-extrabold">আপনার অ্যাকাউন্ট ভেরিফাইড ✅</p>
           </div>
         )}
 
@@ -411,11 +411,11 @@ function WithdrawPage() {
                   <img
                     src={
                       m === "bKash"
-                        ? "https://www.google.com/s2/favicons?domain=bkash.com&sz=128"
+                        ? "https://i.ibb.co/vCZhxW5T/b-Kash-Logo.png"
                         : "https://www.google.com/s2/favicons?domain=nagad.com.bd&sz=128"
                     }
                     alt=""
-                    className="h-5 w-5 rounded"
+                    className="h-5 w-5 rounded object-contain"
                     onError={(e) => {
                       e.currentTarget.style.display = "none";
                     }}
