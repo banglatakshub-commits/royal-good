@@ -97,7 +97,7 @@ function WithdrawPage() {
       return setError("সঠিক উইথড্রের পরিমাণ লিখুন");
     if (amt < effectiveMin) return setError(`সর্বনিম্ন উইথড্র ৳${effectiveMin}`);
     if (amt > balance) return setError("পর্যাপ্ত ব্যালেন্স নেই");
-    if (!/^\\d{11}$/.test(number.trim())) return setError("সঠিক ১১ সংখ্যার মোবাইল নম্বর দিন");
+    if (!/^\d{11}$/.test(number.trim())) return setError("সঠিক ১১ সংখ্যার মোবাইল নম্বর দিন");
     let r;
     try {
       r = await requestWithdraw({
