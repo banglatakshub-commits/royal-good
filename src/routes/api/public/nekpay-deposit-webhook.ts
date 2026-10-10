@@ -73,9 +73,11 @@ export const Route = createFileRoute("/api/public/nekpay-deposit-webhook")({
               .where(and(eq(payment_transactions.id, orderId), eq(payment_transactions.status, "pending")))
               .returning({ tg_id: payment_transactions.tg_id, amount: payment_transactions.amount });
             if (!updated) return;
-            await tx.update(players)
+            const [creditedPlayer] = await tx.update(players)
               .set({ balance: sql`${players.balance} + ${updated.amount}`, updated_at: new Date() })
-              .where(eq(players.tg_id, updated.tg_id));
+              .where(eq(players.tg_id, updated.tg_id))
+              .returning({ tg_id: players.tg_id });
+            if (!creditedPlayer) throw new Error("Deposit player not found; rolling back payment status update");
           });
           return new Response("success", { status: 200 });
         } catch (error) {
