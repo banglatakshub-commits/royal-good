@@ -69,7 +69,7 @@ export const createDepositOrder = createServerFn({ method: "POST" })
       throw new Error("NekPay is not configured. Set NEKPAY_MCH_ID, NEKPAY_COLLECTION_KEY, NEKPAY_PAY_TYPE and RAILWAY_PUBLIC_DOMAIN in Railway.");
     }
     const callbackUrl = `https://${publicDomain.replace(/^https?:\/\//i, "").replace(/\/$/, "")}/api/public/nekpay-deposit-webhook`;
-    const orderId = `dep_${crypto.randomUUID().replace(/-/g, "")}`;
+    const orderId = `dep_${crypto.randomUUID().replace(/-/g, "").slice(0, 24)}`;
     const db = getDb();
     await db.insert(payment_transactions).values({
       id: orderId,
