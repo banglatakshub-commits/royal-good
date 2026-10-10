@@ -5,13 +5,19 @@ import {
   CheckCircle2,
   Clock,
   History,
-  Lock,
   ShieldAlert,
   Smartphone,
   XCircle,
 } from "lucide-react";
 import { BottomNav } from "@/components/BottomNav";
 import { PageShell } from "@/components/AppShell";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { getBalance, refreshBalance, setServerBalance, useBalance } from "@/lib/wallet";
 import { generatePaymentUrl, getMyWithdrawalHistory, requestWithdraw } from "@/lib/earn.functions";
 import { loadSettings, settings } from "@/lib/settings";
@@ -136,7 +142,12 @@ function WithdrawPage() {
   /** Balance still needed before any withdrawal is possible at all. */
   const balanceShortfall = validation.balanceShortfall;
   const belowMinimum = balance < minimum;
-  const banner = submitMessage || (attempted && !validation.ok ? validation.message : "");
+  // Inactive-account details are only shown in the activation dialog after the other checks pass.
+  const banner =
+    submitMessage ||
+    (attempted && !validation.ok && validation.code !== "account_inactive"
+      ? validation.message
+      : "");
 
   const errorFor = (field: WithdrawField) =>
     attempted || touched[field] ? validation.fieldErrors[field] : undefined;
@@ -216,10 +227,14 @@ function WithdrawPage() {
       activationFee,
     });
 
+    if (check.code === "account_inactive") {
+      // The fields, minimum, and balance have passed; only now reveal activation details.
+      setShowActivationPopup(true);
+      return;
+    }
+
     if (!check.ok || check.method === null) {
       setSubmitMessage(check.message);
-      // অ্যাকাউন্ট অ্যাক্টিভ না থাকলে উইথড্রের বদলে অ্যাক্টিভেশন সিস্টেম দেখানো হয়
-      if (check.code === "account_inactive") setShowActivationPopup(true);
       return;
     }
 
@@ -239,8 +254,11 @@ function WithdrawPage() {
       setIsActive(result.isActive);
 
       if (!result.ok) {
-        setSubmitMessage(result.error ?? "সমস্যা হয়েছে, আবার চেষ্টা করুন");
-        if (result.code === "account_inactive") setShowActivationPopup(true);
+        if (result.code === "account_inactive") {
+          setShowActivationPopup(true);
+        } else {
+          setSubmitMessage(result.error ?? "সমস্যা হয়েছে, আবার চেষ্টা করুন");
+        }
         return;
       }
 
@@ -286,57 +304,6 @@ function WithdrawPage() {
     }
     setIsProcessingPayment(false);
   };
-
-  if (showActivationPopup) {
-    return (
-      <PageShell title="অ্যাকাউন্ট অ্যাক্টিভ করুন">
-        <div className="flex flex-col items-center px-6 pt-16 text-center">
-          <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-destructive/10 text-destructive">
-            <XCircle className="h-8 w-8" />
-          </div>
-          <h2 className="font-display text-2xl font-bold text-primary-deep">
-            অ্যাকাউন্ট অ্যাক্টিভ নয়
-          </h2>
-          <p className="mt-4 text-sm text-muted-foreground">
-            উইথড্র করার জন্য আপনার অ্যাকাউন্ট অ্যাক্টিভ করতে হবে। একবারই অ্যাক্টিভেশন ফি ৳
-            {activationFee} পে করলে উইথড্র খুলে যাবে।
-          </p>
-          {amount && (
-            <p className="mt-3 rounded-xl border bg-card px-4 py-2.5 text-xs font-semibold text-primary-deep">
-              আপনার ফর্মের তথ্য সংরক্ষিত আছে: ৳{amount} • {method}
-              {number ? ` • ${number}` : ""}
-            </p>
-          )}
-          <div className="mt-8 w-full max-w-sm space-y-3">
-            <button
-              onClick={handlePayment}
-              disabled={isProcessingPayment}
-              className="header-grad flex w-full items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-bold text-primary-foreground shadow-card disabled:opacity-60"
-            >
-              {isProcessingPayment
-                ? "অপেক্ষা করুন..."
-                : `বিকাশ/নগদ দিয়ে পে করুন (৳${activationFee})`}
-            </button>
-            <button
-              onClick={() => {
-                setShowActivationPopup(false);
-                setPaymentError("");
-              }}
-              className="w-full rounded-xl border bg-card py-3.5 text-sm font-bold text-muted-foreground shadow-sm"
-            >
-              ফিরে যান
-            </button>
-            {paymentError && (
-              <p className="rounded-xl bg-destructive/10 px-4 py-2.5 text-xs font-bold text-destructive">
-                {paymentError}
-              </p>
-            )}
-          </div>
-        </div>
-        <BottomNav active="withdraw" />
-      </PageShell>
-    );
-  }
 
   if (done) {
     return (
@@ -395,32 +362,14 @@ function WithdrawPage() {
           )}
         </div>
 
-        {/* Account status gates */}
-        {isBlocked ? (
+        {/* Blocked status is separate from activation; activation details stay inside the popup. */}
+        {isBlocked && (
           <div className="flex items-start gap-2 rounded-2xl border border-destructive/30 bg-destructive/10 p-4 text-destructive">
             <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
             <p className="text-xs font-bold">
               আপনার অ্যাকাউন্ট ব্লক করা হয়েছে — উইথড্র করা যাবে না। সাপোর্টে যোগাযোগ করুন।
             </p>
           </div>
-        ) : (
-          !isActive && (
-            <div className="rounded-2xl border border-gold/40 bg-gold/10 p-4">
-              <div className="flex items-start gap-2">
-                <Lock className="mt-0.5 h-4 w-4 shrink-0 text-primary-deep" />
-                <p className="text-xs font-semibold text-primary-deep">
-                  অ্যাকাউন্ট অ্যাক্টিভ নয়। উইথড্র করতে অ্যাক্টিভেশন ফি ৳{activationFee} পে করতে
-                  হবে।
-                </p>
-              </div>
-              <button
-                onClick={() => setShowActivationPopup(true)}
-                className="header-grad mt-3 w-full rounded-xl py-2.5 text-xs font-bold text-primary-foreground shadow-sm"
-              >
-                অ্যাকাউন্ট অ্যাক্টিভ করুন
-              </button>
-            </div>
-          )
         )}
 
         {/* Withdraw form: one submit handler validates method, number, minimum and balance. */}
@@ -561,11 +510,9 @@ function WithdrawPage() {
                 ? "পাঠানো হচ্ছে..."
                 : isBlocked
                   ? "অ্যাকাউন্ট ব্লকড"
-                  : isActive
-                    ? belowMinimum
-                      ? `উইথড্র করতে কমপক্ষে ৳${minimum} লাগবে`
-                      : "উইথড্র করুন"
-                    : `অ্যাক্টিভ করে উইথড্র করুন (৳${activationFee})`}
+                  : belowMinimum
+                    ? `উইথড্র করতে কমপক্ষে ৳${minimum} লাগবে`
+                    : "উইথড্র করুন"}
           </button>
         </form>
 
@@ -621,6 +568,63 @@ function WithdrawPage() {
         </div>
       </div>
       <BottomNav active="withdraw" />
+      <Dialog
+        open={showActivationPopup}
+        onOpenChange={(open) => {
+          setShowActivationPopup(open);
+          if (!open) setPaymentError("");
+        }}
+      >
+        <DialogContent className="w-[calc(100%-2rem)] max-w-sm rounded-2xl border bg-card p-6 shadow-xl">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+            <XCircle className="h-7 w-7" />
+          </div>
+          <DialogHeader className="items-center text-center">
+            <DialogTitle className="font-display text-xl font-bold text-primary-deep">
+              অ্যাকাউন্ট অ্যাক্টিভ নয়
+            </DialogTitle>
+            <DialogDescription className="text-sm leading-6">
+              উইথড্র করার জন্য আপনার অ্যাকাউন্ট অ্যাক্টিভ করতে হবে। একবারই অ্যাক্টিভেশন ফি ৳
+              {activationFee} পে করলে উইথড্র খুলে যাবে।
+            </DialogDescription>
+          </DialogHeader>
+          {amount && (
+            <p className="rounded-xl border bg-background px-4 py-2.5 text-center text-xs font-semibold text-primary-deep">
+              আপনার ফর্মের তথ্য সংরক্ষিত আছে: ৳{amount} • {method}
+              {number ? ` • ${number}` : ""}
+            </p>
+          )}
+          <div className="space-y-3">
+            <button
+              onClick={handlePayment}
+              disabled={isProcessingPayment}
+              className="header-grad flex w-full items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-bold text-primary-foreground shadow-card disabled:opacity-60"
+            >
+              {isProcessingPayment
+                ? "অপেক্ষা করুন..."
+                : `বিকাশ/নগদ দিয়ে পে করুন (৳${activationFee})`}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowActivationPopup(false);
+                setPaymentError("");
+              }}
+              className="w-full rounded-xl border bg-background py-3.5 text-sm font-bold text-muted-foreground shadow-sm"
+            >
+              ফিরে যান
+            </button>
+            {paymentError && (
+              <p
+                role="alert"
+                className="rounded-xl bg-destructive/10 px-4 py-2.5 text-xs font-bold text-destructive"
+              >
+                {paymentError}
+              </p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </PageShell>
   );
 }
