@@ -519,7 +519,7 @@ export const generatePaymentUrl = createServerFn({ method: "POST" })
       }
       if (!response.ok) throw new Error(`NekPay request failed (HTTP ${response.status})`);
       const paymentUrl = findNekPayPaymentUrl(payload);
-      if (!paymentUrl) throw new Error("NekPay response did not contain a recognized payment URL");
+      if (!paymentUrl) throw new Error(`NekPay: ${nekPayErrorMessage(payload)}`);
       return { ok: true, url: paymentUrl };
     } catch (error) {
       await db
@@ -527,28 +527,53 @@ export const generatePaymentUrl = createServerFn({ method: "POST" })
         .set({ status: "failed", updated_at: new Date() })
         .where(eq(payment_transactions.id, orderId));
       console.error("NekPay activation request error:", error);
-      return {
-        ok: false,
-        error:
-          "NekPay পেমেন্ট লিংক তৈরি করতে পারেনি। Merchant settings, Pay Type ও API response যাচাই করুন।",
-      };
+      // Surface NekPay's real reason so merchant/key/pay_type issues are visible.
+      const reason = error instanceof Error ? error.message : "পেমেন্ট শুরু করা যায়নি";
+      return { ok: false, error: reason };
     }
   });
+
+/** Pulls a human-readable error out of a NekPay response (respCode / errorMsg / tradeMsg). */
+function nekPayErrorMessage(payload: unknown): string {
+  if (!payload || typeof payload !== "object") return "অপ্রত্যাশিত রেসপন্স";
+  const o = payload as Record<string, unknown>;
+  const pick = (k: string) => (typeof o[k] === "string" ? (o[k] as string) : undefined);
+  return (
+    pick("errorMsg") ??
+    pick("tradeMsg") ??
+    pick("respMsg") ??
+    pick("message") ??
+    pick("msg") ??
+    pick("respCode") ??
+    "পেমেন্ট লিংক পাওয়া যায়নি"
+  );
+}
 
 function findNekPayPaymentUrl(value: unknown, depth = 0): string | null {
   if (depth > 5 || !value || typeof value !== "object") return null;
   const object = value as Record<string, unknown>;
+  // NekPay returns the cashier link in `payInfo`; keep the other common names too.
   for (const key of [
+    "payInfo",
     "pay_url",
     "payUrl",
     "payment_url",
     "paymentUrl",
     "cashierUrl",
+    "payment_link",
     "url",
     "redirect_url",
   ]) {
     const candidate = object[key];
-    if (typeof candidate === "string" && candidate.startsWith("https://")) return candidate;
+    if (typeof candidate === "string" && /^https?:\/\//i.test(candidate.trim())) {
+      return candidate.trim();
+    }
+  }
+  // Fallback: any string value on this object that is itself a URL.
+  for (const candidate of Object.values(object)) {
+    if (typeof candidate === "string" && /^https?:\/\//i.test(candidate.trim())) {
+      return candidate.trim();
+    }
   }
   for (const nested of Object.values(object)) {
     const found = findNekPayPaymentUrl(nested, depth + 1);
