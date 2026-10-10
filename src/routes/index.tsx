@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { Bell, Wallet, Disc3, Keyboard, HelpCircle, MonitorPlay, PlusCircle } from "lucide-react";
+import { Bell, Wallet, Disc3, Keyboard, HelpCircle, MonitorPlay } from "lucide-react";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getCustomTasks } from "@/lib/public.functions";
@@ -93,22 +93,13 @@ function Index() {
             </p>
             <p className="font-display text-3xl font-bold text-primary">৳ {balance}</p>
           </div>
-          <div className="flex flex-col gap-2">
-            <Link
-              to="/deposit"
-              className="flex items-center justify-center gap-1.5 rounded-xl border border-primary/20 bg-background px-3 py-2 text-xs font-bold text-primary shadow-sm active:scale-95"
-            >
-              <PlusCircle className="h-4 w-4" />
-              Deposit
-            </Link>
-            <Link
-              to="/withdraw"
-              className="header-grad flex items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold text-primary-foreground shadow-sm active:scale-95"
-            >
-              <Wallet className="h-4 w-4" />
-              Withdraw
-            </Link>
-          </div>
+          <Link
+            to="/withdraw"
+            className="header-grad flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-xs font-bold text-primary-foreground shadow-sm active:scale-95"
+          >
+            <Wallet className="h-4 w-4" />
+            Withdraw
+          </Link>
         </div>
       </header>
 
