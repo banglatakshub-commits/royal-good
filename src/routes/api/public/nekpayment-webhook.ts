@@ -87,19 +87,23 @@ export const Route = createFileRoute("/api/public/nekpayment-webhook")({
           return new Response("Malformed notification", { status: 400 });
         }
 
-        const transactionId = params["merTransferId"]?.trim();
+        const transactionId = (params["mchOrderNo"] ?? params["merTransferId"])?.trim();
         if (!transactionId) {
           logCallback("missing_transaction_id", request);
-          return new Response("Missing merTransferId", { status: 400 });
+          return new Response("Missing order ID", { status: 400 });
         }
 
         try {
           const [settingRow] = await getDb()
-            .select({ nek_secret_key: app_settings.nek_secret_key })
+            .select({
+              nek_api_key: app_settings.nek_api_key,
+              nek_secret_key: app_settings.nek_secret_key,
+            })
             .from(app_settings)
             .where(eq(app_settings.id, 1))
             .limit(1);
           const secretKey = settingRow?.nek_secret_key.trim() ?? "";
+          const merchantId = settingRow?.nek_api_key.trim() ?? "";
 
           // Fail closed: without the merchant secret a notification cannot be authenticated,
           // so it must never change a payment or activate an account.
@@ -110,6 +114,24 @@ export const Route = createFileRoute("/api/public/nekpayment-webhook")({
           if (!verifyNekSign(params, secretKey, params["sign"])) {
             logCallback("invalid_signature", request, { transactionId });
             return new Response("Invalid signature", { status: 403 });
+          }
+          if (params["mchOrderNo"] && params["mchId"] !== merchantId) {
+            logCallback("merchant_mismatch", request, { transactionId });
+            return new Response("Invalid merchant", { status: 403 });
+          }
+
+          // For collection callbacks, verify the order and amount against our DB before activation.
+          if (params["mchOrderNo"]) {
+            const [order] = await getDb()
+              .select({ amount: payment_transactions.amount, status: payment_transactions.status })
+              .from(payment_transactions)
+              .where(eq(payment_transactions.id, transactionId))
+              .limit(1);
+            const paidAmount = Number(params["oriAmount"] ?? params["amount"]);
+            if (!order || !Number.isFinite(paidAmount) || paidAmount !== order.amount) {
+              logCallback("order_or_amount_mismatch", request, { transactionId });
+              return new Response("Order or amount mismatch", { status: 400 });
+            }
           }
 
           // Gateway codes: 1 = success, 2 = failed.
