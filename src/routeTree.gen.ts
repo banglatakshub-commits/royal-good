@@ -19,10 +19,8 @@ import { Route as ReferRouteImport } from './routes/refer'
 import { Route as SpinRouteImport } from './routes/spin'
 import { Route as TypingRouteImport } from './routes/typing'
 import { Route as WithdrawRouteImport } from './routes/withdraw'
-import { Route as DepositRouteImport } from './routes/deposit'
 import { Route as TaskIdRouteImport } from './routes/task.$id'
 import { Route as ApiPublicNekpaymentWebhookRouteImport } from './routes/api/public/nekpayment-webhook'
-import { Route as ApiPublicNekpayDepositWebhookRouteImport } from './routes/api/public/nekpay-deposit-webhook'
 import { Route as ApiPublicTelegramWebhookRouteImport } from './routes/api/public/telegram-webhook'
 
 const IndexRoute = IndexRouteImport.update({
@@ -70,11 +68,6 @@ const TypingRoute = TypingRouteImport.update({
   path: '/typing',
   getParentRoute: () => rootRouteImport,
 } as any)
-const DepositRoute = DepositRouteImport.update({
-  id: '/deposit',
-  path: '/deposit',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const WithdrawRoute = WithdrawRouteImport.update({
   id: '/withdraw',
   path: '/withdraw',
@@ -83,11 +76,6 @@ const WithdrawRoute = WithdrawRouteImport.update({
 const TaskIdRoute = TaskIdRouteImport.update({
   id: '/task/$id',
   path: '/task/$id',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiPublicNekpayDepositWebhookRoute = ApiPublicNekpayDepositWebhookRouteImport.update({
-  id: '/api/public/nekpay-deposit-webhook',
-  path: '/api/public/nekpay-deposit-webhook',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiPublicNekpaymentWebhookRoute =
@@ -113,10 +101,8 @@ export interface FileRoutesByFullPath {
   '/refer': typeof ReferRoute
   '/spin': typeof SpinRoute
   '/typing': typeof TypingRoute
-  '/deposit': typeof DepositRoute
   '/withdraw': typeof WithdrawRoute
   '/task/$id': typeof TaskIdRoute
-  '/api/public/nekpay-deposit-webhook': typeof ApiPublicNekpayDepositWebhookRoute
   '/api/public/nekpayment-webhook': typeof ApiPublicNekpaymentWebhookRoute
   '/api/public/telegram-webhook': typeof ApiPublicTelegramWebhookRoute
 }
@@ -130,10 +116,8 @@ export interface FileRoutesByTo {
   '/refer': typeof ReferRoute
   '/spin': typeof SpinRoute
   '/typing': typeof TypingRoute
-  '/deposit': typeof DepositRoute
   '/withdraw': typeof WithdrawRoute
   '/task/$id': typeof TaskIdRoute
-  '/api/public/nekpay-deposit-webhook': typeof ApiPublicNekpayDepositWebhookRoute
   '/api/public/nekpayment-webhook': typeof ApiPublicNekpaymentWebhookRoute
   '/api/public/telegram-webhook': typeof ApiPublicTelegramWebhookRoute
 }
@@ -148,10 +132,8 @@ export interface FileRoutesById {
   '/refer': typeof ReferRoute
   '/spin': typeof SpinRoute
   '/typing': typeof TypingRoute
-  '/deposit': typeof DepositRoute
   '/withdraw': typeof WithdrawRoute
   '/task/$id': typeof TaskIdRoute
-  '/api/public/nekpay-deposit-webhook': typeof ApiPublicNekpayDepositWebhookRoute
   '/api/public/nekpayment-webhook': typeof ApiPublicNekpaymentWebhookRoute
   '/api/public/telegram-webhook': typeof ApiPublicTelegramWebhookRoute
 }
@@ -167,10 +149,8 @@ export interface FileRouteTypes {
     | '/refer'
     | '/spin'
     | '/typing'
-    | '/deposit'
     | '/withdraw'
     | '/task/$id'
-    | '/api/public/nekpay-deposit-webhook'
     | '/api/public/nekpayment-webhook'
     | '/api/public/telegram-webhook'
   fileRoutesByTo: FileRoutesByTo
@@ -184,10 +164,8 @@ export interface FileRouteTypes {
     | '/refer'
     | '/spin'
     | '/typing'
-    | '/deposit'
     | '/withdraw'
     | '/task/$id'
-    | '/api/public/nekpay-deposit-webhook'
     | '/api/public/nekpayment-webhook'
     | '/api/public/telegram-webhook'
   id:
@@ -201,10 +179,8 @@ export interface FileRouteTypes {
     | '/refer'
     | '/spin'
     | '/typing'
-    | '/deposit'
     | '/withdraw'
     | '/task/$id'
-    | '/api/public/nekpay-deposit-webhook'
     | '/api/public/nekpayment-webhook'
     | '/api/public/telegram-webhook'
   fileRoutesById: FileRoutesById
@@ -219,10 +195,8 @@ export interface RootRouteChildren {
   ReferRoute: typeof ReferRoute
   SpinRoute: typeof SpinRoute
   TypingRoute: typeof TypingRoute
-  DepositRoute: typeof DepositRoute
   WithdrawRoute: typeof WithdrawRoute
   TaskIdRoute: typeof TaskIdRoute
-  ApiPublicNekpayDepositWebhookRoute: typeof ApiPublicNekpayDepositWebhookRoute
   ApiPublicNekpaymentWebhookRoute: typeof ApiPublicNekpaymentWebhookRoute
   ApiPublicTelegramWebhookRoute: typeof ApiPublicTelegramWebhookRoute
 }
@@ -292,13 +266,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TypingRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/deposit': {
-      id: '/deposit'
-      path: '/deposit'
-      fullPath: '/deposit'
-      preLoaderRoute: typeof DepositRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/withdraw': {
       id: '/withdraw'
       path: '/withdraw'
@@ -311,13 +278,6 @@ declare module '@tanstack/react-router' {
       path: '/task/$id'
       fullPath: '/task/$id'
       preLoaderRoute: typeof TaskIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/public/nekpay-deposit-webhook': {
-      id: '/api/public/nekpay-deposit-webhook'
-      path: '/api/public/nekpay-deposit-webhook'
-      fullPath: '/api/public/nekpay-deposit-webhook'
-      preLoaderRoute: typeof ApiPublicNekpayDepositWebhookRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/public/nekpayment-webhook': {
@@ -347,10 +307,8 @@ const rootRouteChildren: RootRouteChildren = {
   ReferRoute: ReferRoute,
   SpinRoute: SpinRoute,
   TypingRoute: TypingRoute,
-  DepositRoute: DepositRoute,
   WithdrawRoute: WithdrawRoute,
   TaskIdRoute: TaskIdRoute,
-  ApiPublicNekpayDepositWebhookRoute: ApiPublicNekpayDepositWebhookRoute,
   ApiPublicNekpaymentWebhookRoute: ApiPublicNekpaymentWebhookRoute,
   ApiPublicTelegramWebhookRoute: ApiPublicTelegramWebhookRoute,
 }
