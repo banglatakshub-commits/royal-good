@@ -19,6 +19,7 @@ import { Route as ReferRouteImport } from './routes/refer'
 import { Route as SpinRouteImport } from './routes/spin'
 import { Route as TypingRouteImport } from './routes/typing'
 import { Route as WithdrawRouteImport } from './routes/withdraw'
+import { Route as DepositRouteImport } from './routes/deposit'
 import { Route as TaskIdRouteImport } from './routes/task.$id'
 import { Route as ApiPublicNekpaymentWebhookRouteImport } from './routes/api/public/nekpayment-webhook'
 import { Route as ApiPublicTelegramWebhookRouteImport } from './routes/api/public/telegram-webhook'
@@ -68,6 +69,11 @@ const TypingRoute = TypingRouteImport.update({
   path: '/typing',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DepositRoute = DepositRouteImport.update({
+  id: '/deposit',
+  path: '/deposit',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const WithdrawRoute = WithdrawRouteImport.update({
   id: '/withdraw',
   path: '/withdraw',
@@ -101,6 +107,7 @@ export interface FileRoutesByFullPath {
   '/refer': typeof ReferRoute
   '/spin': typeof SpinRoute
   '/typing': typeof TypingRoute
+  '/deposit': typeof DepositRoute
   '/withdraw': typeof WithdrawRoute
   '/task/$id': typeof TaskIdRoute
   '/api/public/nekpayment-webhook': typeof ApiPublicNekpaymentWebhookRoute
@@ -149,6 +156,7 @@ export interface FileRouteTypes {
     | '/refer'
     | '/spin'
     | '/typing'
+    | '/deposit'
     | '/withdraw'
     | '/task/$id'
     | '/api/public/nekpayment-webhook'
@@ -195,6 +203,7 @@ export interface RootRouteChildren {
   ReferRoute: typeof ReferRoute
   SpinRoute: typeof SpinRoute
   TypingRoute: typeof TypingRoute
+  DepositRoute: typeof DepositRoute
   WithdrawRoute: typeof WithdrawRoute
   TaskIdRoute: typeof TaskIdRoute
   ApiPublicNekpaymentWebhookRoute: typeof ApiPublicNekpaymentWebhookRoute
@@ -266,6 +275,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TypingRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/deposit': {
+      id: '/deposit'
+      path: '/deposit'
+      fullPath: '/deposit'
+      preLoaderRoute: typeof DepositRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/withdraw': {
       id: '/withdraw'
       path: '/withdraw'
@@ -307,6 +323,7 @@ const rootRouteChildren: RootRouteChildren = {
   ReferRoute: ReferRoute,
   SpinRoute: SpinRoute,
   TypingRoute: TypingRoute,
+  DepositRoute: DepositRoute,
   WithdrawRoute: WithdrawRoute,
   TaskIdRoute: TaskIdRoute,
   ApiPublicNekpaymentWebhookRoute: ApiPublicNekpaymentWebhookRoute,
