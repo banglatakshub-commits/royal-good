@@ -114,7 +114,6 @@ export interface FileRoutesByFullPath {
   '/spin': typeof SpinRoute
   '/typing': typeof TypingRoute
   '/deposit': typeof DepositRoute
-  '/deposit': typeof DepositRoute
   '/withdraw': typeof WithdrawRoute
   '/task/$id': typeof TaskIdRoute
   '/api/public/nekpay-deposit-webhook': typeof ApiPublicNekpayDepositWebhookRoute
@@ -168,7 +167,6 @@ export interface FileRouteTypes {
     | '/refer'
     | '/spin'
     | '/typing'
-    | '/deposit'
     | '/deposit'
     | '/withdraw'
     | '/task/$id'
