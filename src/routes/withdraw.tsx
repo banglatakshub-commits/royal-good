@@ -6,7 +6,7 @@ import {
   Clock,
   History,
   ShieldAlert,
-  Smartphone,
+  ShieldCheck,
   XCircle,
 } from "lucide-react";
 import { BottomNav } from "@/components/BottomNav";
@@ -364,6 +364,14 @@ function WithdrawPage() {
           )}
         </div>
 
+        {/* Verified banner: shown once the account is active (and not blocked). */}
+        {isActive && !isBlocked && (
+          <div className="flex items-center justify-center gap-2 rounded-2xl border border-primary/30 bg-primary/5 p-3 text-primary">
+            <ShieldCheck className="h-4 w-4 shrink-0" />
+            <p className="text-sm font-bold">আপনার অ্যাকাউন্ট ভেরিফাইড ✅</p>
+          </div>
+        )}
+
         {/* Blocked status is separate from activation; activation details stay inside the popup. */}
         {isBlocked && (
           <div className="flex items-start gap-2 rounded-2xl border border-destructive/30 bg-destructive/10 p-4 text-destructive">
@@ -400,7 +408,18 @@ function WithdrawPage() {
                       : "bg-card text-muted-foreground"
                   }`}
                 >
-                  <Smartphone className="h-3.5 w-3.5" />
+                  <img
+                    src={
+                      m === "bKash"
+                        ? "https://www.google.com/s2/favicons?domain=bkash.com&sz=128"
+                        : "https://www.google.com/s2/favicons?domain=nagad.com.bd&sz=128"
+                    }
+                    alt=""
+                    className="h-5 w-5 rounded"
+                    onError={(e) => {
+                      e.currentTarget.style.display = "none";
+                    }}
+                  />
                   {m}
                 </button>
               ))}
@@ -583,19 +602,23 @@ function WithdrawPage() {
           </div>
           <DialogHeader className="items-center text-center">
             <DialogTitle className="font-display text-xl font-bold text-primary-deep">
-              অ্যাকাউন্ট অ্যাক্টিভ নয়
+              অ্যাকাউন্ট ভেরিফিকেশন
             </DialogTitle>
             <DialogDescription className="text-sm leading-6">
-              উইথড্র করার জন্য আপনার অ্যাকাউন্ট অ্যাক্টিভ করতে হবে। একবারই অ্যাক্টিভেশন ফি ৳
-              {activationFee} পে করলে উইথড্র খুলে যাবে।
+              উইথড্র চালু করতে অ্যাকাউন্ট ভেরিফিকেশন বাধ্যতামূলক।
             </DialogDescription>
           </DialogHeader>
-          {amount && (
-            <p className="rounded-xl border bg-background px-4 py-2.5 text-center text-xs font-semibold text-primary-deep">
-              আপনার ফর্মের তথ্য সংরক্ষিত আছে: ৳{amount} • {method}
-              {number ? ` • ${number}` : ""}
+          <div className="rounded-xl border bg-background px-4 py-3">
+            <p className="text-sm font-bold text-primary-deep">
+              💵 ফি: ৳ {activationFee}.00{" "}
+              <span className="font-normal text-muted-foreground">(শুধুমাত্র একবার)</span>
             </p>
-          )}
+            <ul className="mt-1.5 space-y-0.5 text-xs text-muted-foreground">
+              <li>• উইথড্র চালু হবে।</li>
+              <li>• অ্যাকাউন্ট Active হবে।</li>
+              <li>• পুনরায় কোনো ফি লাগবে না।</li>
+            </ul>
+          </div>
           <div className="space-y-3">
             <button
               onClick={() => handlePayment()}
