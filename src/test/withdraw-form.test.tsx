@@ -4,8 +4,8 @@ import type { ComponentType, ReactNode } from "react";
 
 /**
  * Renders the real /withdraw page with its server calls mocked, so form behaviour is covered too:
- * inline field errors, the minimum-withdraw rule, the main-balance message and the activation gate
- * that replaces the withdraw action for an inactive account.
+ * inline field errors, the minimum-withdraw rule, the main-balance message and the activation popup
+ * that is shown only after a valid form submission for an inactive account.
  */
 const h = vi.hoisted(() => {
   const state = {
@@ -237,26 +237,60 @@ describe("withdraw page validation", () => {
     await waitFor(() => expect(h.state.balance).toBe(10));
   });
 
-  it("opens the activation flow instead of withdrawing when the account is inactive", async () => {
-    h.state.history = { ...h.state.history, isActive: false, activationFee: 100 };
+  it("opens the activation popup for an authoritative inactive-account refusal", async () => {
+    h.state.result = {
+      ok: false,
+      error: "অ্যাকাউন্ট অ্যাক্টিভ নয়",
+      code: "account_inactive",
+      balance: 500,
+      minimum: 50,
+      isActive: false,
+    };
     const submit = await renderPage();
-
-    expect(await screen.findByText(/অ্যাকাউন্ট অ্যাক্টিভ নয়/)).toBeInTheDocument();
-    expect(submit).toHaveTextContent("অ্যাক্টিভ করে উইথড্র করুন (৳100)");
-
     fill({ amount: "100", number: "01712345678" });
     fireEvent.click(submit);
 
-    expect(
-      await screen.findByRole("heading", { name: "অ্যাকাউন্ট অ্যাক্টিভ নয়" }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(h.requestWithdraw).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "ফিরে যান" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(document.body).not.toHaveTextContent("অ্যাক্টিভ");
+  });
+
+  it("only shows the activation popup after an inactive account submits a valid form", async () => {
+    h.state.history = { ...h.state.history, isActive: false, activationFee: 100 };
+    const submit = await renderPage();
+
+    expect(document.body).not.toHaveTextContent("অ্যাক্টিভ");
+    expect(submit).toHaveTextContent("উইথড্র করুন");
+
+    fireEvent.click(submit);
+    await waitFor(() => expect(fieldError("withdraw-amount-error")).toBe("উইথড্রের পরিমাণ লিখুন"));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("অ্যাক্টিভ");
+
+    fill({ amount: "20", number: "01712345678" });
+    fireEvent.click(submit);
+    await waitFor(() => expect(fieldError("withdraw-amount-error")).toContain("৳50"));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("অ্যাক্টিভ");
+
+    fill({ amount: "100" });
+    fireEvent.click(submit);
+
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "অ্যাকাউন্ট অ্যাক্টিভ নয়" })).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "বিকাশ/নগদ দিয়ে পে করুন (৳100)" }),
     ).toBeInTheDocument();
     expect(h.requestWithdraw).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "ফিরে যান" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(await screen.findByLabelText("মোবাইল নম্বর")).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("অ্যাক্টিভ");
   });
 
   it("still validates the inputs first when the account is inactive", async () => {
