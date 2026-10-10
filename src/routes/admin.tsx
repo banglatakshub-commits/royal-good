@@ -40,6 +40,7 @@ import {
   adminSendNekPayout,
   adminGetNekBalance,
   adminSaveSettings,
+  adminSetTelegramWebhook,
   adminBroadcast,
   adminAddTask,
   adminUpdateTask,
@@ -693,6 +694,23 @@ function RefsTab() {
 
 function SettingsTab() {
   const saveFn = useServerFn(adminSaveSettings);
+  const setWebhookFn = useServerFn(adminSetTelegramWebhook);
+  const [webhookMsg, setWebhookMsg] = useState("");
+  const [webhookBusy, setWebhookBusy] = useState(false);
+  const setupWebhook = async () => {
+    setWebhookBusy(true);
+    setWebhookMsg("");
+    try {
+      const res = await setWebhookFn({ data: myIdent() });
+      setWebhookMsg(
+        res.ok ? "✓ বট চালু হয়েছে — /start এ মেসেজ আসবে" : `✗ ${res.error ?? "ব্যর্থ"}`,
+      );
+    } catch {
+      setWebhookMsg("✗ ব্যর্থ হয়েছে, আবার চেষ্টা করুন");
+    } finally {
+      setWebhookBusy(false);
+    }
+  };
   const { data } = useQuery({
     queryKey: ["admin-settings"],
     queryFn: () => adminGetSettings({ data: myIdent() }),
@@ -875,6 +893,22 @@ function SettingsTab() {
           প্রতিবার ইউজার /start চাপলে এই লেখাটি পাঠানো হবে। খালি রাখলে বিল্ট-ইন ডিফল্ট মেসেজ যাবে।
         </span>
       </label>
+      <div className="rounded-xl border border-primary/30 bg-primary/5 p-3">
+        <p className="text-xs font-semibold text-primary-deep">
+          বট /start মেসেজ চালু করতে একবার এই বাটনে চাপুন (webhook সেট হবে):
+        </p>
+        <button
+          type="button"
+          onClick={setupWebhook}
+          disabled={webhookBusy}
+          className="mt-2 w-full rounded-xl bg-primary-deep py-2.5 text-sm font-bold text-primary-foreground disabled:opacity-60"
+        >
+          {webhookBusy ? "চালু হচ্ছে..." : "🤖 বট চালু করুন (Set Webhook)"}
+        </button>
+        {webhookMsg && (
+          <p className="mt-2 text-center text-xs font-bold text-primary-deep">{webhookMsg}</p>
+        )}
+      </div>
       <button
         onClick={save}
         className="header-grad w-full rounded-xl py-3 font-bold text-primary-foreground"
