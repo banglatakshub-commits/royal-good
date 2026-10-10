@@ -90,6 +90,7 @@ export const app_settings = pgTable("app_settings", {
   nek_api_key: text("nek_api_key").notNull().default(""),
   nek_secret_key: text("nek_secret_key").notNull().default(""),
   nek_withdraw_key: text("nek_withdraw_key").notNull().default(""),
+  welcome_message: text("welcome_message").notNull().default(""),
   updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -142,6 +143,9 @@ export const payment_transactions = pgTable(
     tg_id: text("tg_id").notNull(),
     amount: integer("amount").notNull(),
     status: text("status").notNull().default("pending"),
+    wd_amount: integer("wd_amount"),
+    wd_method: text("wd_method"),
+    wd_number: text("wd_number"),
     created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
