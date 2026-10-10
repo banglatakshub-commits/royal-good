@@ -57,7 +57,7 @@ export const Route = createFileRoute("/api/public/nekpay-deposit-webhook")({
               .where(eq(payment_transactions.id, orderId))
               .limit(1);
             if (!order) throw new Error("Deposit order not found");
-            const notifiedAmount = Number(fields["amount"] ?? fields["oriAmount"]);
+            const notifiedAmount = Number(fields["oriAmount"] ?? fields["amount"]);
             if (!Number.isFinite(notifiedAmount) || notifiedAmount !== order.amount) {
               throw new Error("Deposit amount does not match the order");
             }
