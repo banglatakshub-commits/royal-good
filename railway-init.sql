@@ -75,9 +75,30 @@ ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS daily_quiz INTEGER NOT 
 --> statement-breakpoint
 ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS support_telegram_username TEXT NOT NULL DEFAULT '';
 --> statement-breakpoint
+ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS activation_fee INTEGER NOT NULL DEFAULT 100;
+--> statement-breakpoint
+ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS nek_api_key TEXT NOT NULL DEFAULT '';
+--> statement-breakpoint
+ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS nek_secret_key TEXT NOT NULL DEFAULT '';
+--> statement-breakpoint
+ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS nek_withdraw_key TEXT NOT NULL DEFAULT '';
+--> statement-breakpoint
 ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
 --> statement-breakpoint
 INSERT INTO public.app_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+--> statement-breakpoint
+ALTER TABLE public.players ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT false;
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS public.payment_transactions (
+    id TEXT PRIMARY KEY,
+    tg_id TEXT NOT NULL,
+    amount INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS payment_transactions_tg_idx ON public.payment_transactions (tg_id);
 --> statement-breakpoint
 
 CREATE TABLE IF NOT EXISTS public.referrals (
