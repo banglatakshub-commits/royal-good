@@ -90,10 +90,14 @@ function WithdrawPage() {
       setShowActivationPopup(true);
       return;
     }
+    if (!amount.trim()) return setError("উইথড্রের পরিমাণ লিখুন");
+    if (!number.trim()) return setError("বিকাশ/নগদ মোবাইল নম্বর লিখুন");
     const amt = Number(amount);
+    if (!Number.isFinite(amt) || !Number.isInteger(amt) || amt <= 0)
+      return setError("সঠিক উইথড্রের পরিমাণ লিখুন");
     if (amt < effectiveMin) return setError(`সর্বনিম্ন উইথড্র ৳${effectiveMin}`);
     if (amt > balance) return setError("পর্যাপ্ত ব্যালেন্স নেই");
-    if (number.length < 11) return setError("সঠিক মোবাইল নম্বর দিন");
+    if (!/^\\d{11}$/.test(number.trim())) return setError("সঠিক ১১ সংখ্যার মোবাইল নম্বর দিন");
     let r;
     try {
       r = await requestWithdraw({
@@ -261,10 +265,19 @@ function WithdrawPage() {
 
         <button
           onClick={submit}
-          className="header-grad w-full rounded-xl py-3.5 text-sm font-bold text-primary-foreground shadow-card active:scale-[0.98]"
+          disabled={isActive && Number(balance) < effectiveMin}
+          className="header-grad w-full rounded-xl py-3.5 text-sm font-bold text-primary-foreground shadow-card active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
         >
-          উইথড্র করুন
+          {isActive && Number(balance) < effectiveMin
+            ? `উইথড্র করতে কমপক্ষে ৳${effectiveMin} লাগবে`
+            : "উইথড্র করুন"}
         </button>
+        {isActive && Number(balance) < effectiveMin && (
+          <p className="text-center text-xs font-semibold text-destructive">
+            আপনার ব্যালেন্স ৳{balance}। সর্বনিম্ন উইথড্র ৳{effectiveMin}; আরও ৳
+            {Math.max(0, effectiveMin - Number(balance))} জমা হলে উইথড্র করতে পারবেন।
+          </p>
+        )}
 
         {/* History */}
         <div className="rounded-2xl border bg-card p-4 shadow-card">
