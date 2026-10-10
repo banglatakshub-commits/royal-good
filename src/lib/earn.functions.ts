@@ -14,6 +14,8 @@ import {
 import { creditWithin, type BalanceExecutor } from "./balance.server";
 import { getDhakaNoonWindow } from "./dhaka-window";
 import { requireTelegramUser, telegramIdentityMatches } from "./telegram-auth.server";
+import { generateNekSign } from "./nekpayment";
+import { payment_transactions } from "../../drizzle/schema";
 
 const identity = z.object({
   initData: z.string().max(8192).optional(),
@@ -336,11 +338,7 @@ export const recordReferral = createServerFn({ method: "POST" })
 
 export type PaymentStart = { ok: true; url: string } | { ok: false; error: string };
 
-/**
- * Starts the account-activation payment. The amount and gateway keys come from app_settings,
- * never from the browser. Nekpayment's order-creation API is not wired up yet, so this returns
- * an explicit error rather than a link to a route that does not exist.
- */
+/** Starts the existing account-activation payment through NekPay collection API. */
 export const generatePaymentUrl = createServerFn({ method: "POST" })
   .validator((data) => identity.parse(data))
   .handler(async ({ data }): Promise<PaymentStart> => {
@@ -354,6 +352,7 @@ export const generatePaymentUrl = createServerFn({ method: "POST" })
         .limit(1),
       db
         .select({
+          activation_fee: app_settings.activation_fee,
           nek_api_key: app_settings.nek_api_key,
           nek_secret_key: app_settings.nek_secret_key,
         })
@@ -366,13 +365,89 @@ export const generatePaymentUrl = createServerFn({ method: "POST" })
     if (player.blocked) return { ok: false, error: "আপনার অ্যাকাউন্ট ব্লক করা হয়েছে" };
     if (player.is_active) return { ok: false, error: "আপনার অ্যাকাউন্ট ইতিমধ্যে অ্যাক্টিভ" };
 
-    const gatewayConfigured = Boolean(
-      settingRow?.nek_api_key.trim() && settingRow?.nek_secret_key.trim(),
-    );
-    if (!gatewayConfigured) {
-      return { ok: false, error: "পেমেন্ট গেটওয়ে এখনো সেট করা হয়নি। অ্যাডমিনকে জানান।" };
+    const merchantId = settingRow?.nek_api_key.trim() ?? "";
+    const secretKey = settingRow?.nek_secret_key.trim() ?? "";
+    const payType = process.env["NEKPAY_PAY_TYPE"]?.trim() ?? "";
+    const publicDomain = process.env["RAILWAY_PUBLIC_DOMAIN"]?.trim() ?? "";
+    if (!merchantId || !secretKey) {
+      return { ok: false, error: "NekPay Merchant ID ও Collection Key অ্যাডমিন সেটিংসে দিতে হবে।" };
+    }
+    if (!payType || !publicDomain) {
+      return { ok: false, error: "Railway-তে NEKPAY_PAY_TYPE এবং RAILWAY_PUBLIC_DOMAIN সেট করা নেই।" };
     }
 
-    // Do not guess the gateway endpoint or parameters here: a wrong host would receive the merchant keys.
-    return { ok: false, error: "পেমেন্ট গেটওয়ে এখনো চালু হয়নি। কিছুক্ষণ পর আবার চেষ্টা করুন।" };
+    const activationFee = settingRow?.activation_fee ?? 100;
+    const domainWithoutProtocol = publicDomain.replace("https://", "").replace("http://", "");
+    const callbackHost = domainWithoutProtocol.endsWith("/") ? domainWithoutProtocol.slice(0, -1) : domainWithoutProtocol;
+    const notifyUrl = `https://${callbackHost}/api/public/nekpayment-webhook`;
+    const orderId = `act_${crypto.randomUUID().replace(/-/g, "").slice(0, 24)}`;
+    const params: Record<string, string> = {
+      version: "1.0",
+      mch_id: merchantId,
+      notify_url: notifyUrl,
+      mch_order_no: orderId,
+      pay_type: payType,
+      trade_amount: String(activationFee),
+      order_date: new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Dhaka",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hourCycle: "h23",
+      }).format(new Date()).replace(",", ""),
+      goods_name: "Account Activation",
+      sign_type: "MD5",
+    };
+    params.sign = generateNekSign(params, secretKey);
+
+    // Create the pending row before contacting the gateway, so an immediate callback can find it.
+    await db.insert(payment_transactions).values({
+      id: orderId,
+      tg_id: user.id,
+      amount: activationFee,
+      status: "pending",
+    });
+
+    try {
+      const response = await fetch("https://api.nekpayment.com/pay/web", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams(params),
+        signal: AbortSignal.timeout(15000),
+      });
+      const raw = await response.text();
+      let payload: unknown;
+      try {
+        payload = JSON.parse(raw);
+      } catch {
+        throw new Error("NekPay returned an unreadable response");
+      }
+      if (!response.ok) throw new Error(`NekPay request failed (HTTP ${response.status})`);
+      const paymentUrl = findNekPayPaymentUrl(payload);
+      if (!paymentUrl) throw new Error("NekPay response did not contain a recognized payment URL");
+      return { ok: true, url: paymentUrl };
+    } catch (error) {
+      await db.update(payment_transactions)
+        .set({ status: "failed", updated_at: new Date() })
+        .where(eq(payment_transactions.id, orderId));
+      console.error("NekPay activation request error:", error);
+      return { ok: false, error: "NekPay পেমেন্ট লিংক তৈরি করতে পারেনি। Merchant settings, Pay Type ও API response যাচাই করুন।" };
+    }
   });
+
+function findNekPayPaymentUrl(value: unknown, depth = 0): string | null {
+  if (depth > 5 || !value || typeof value !== "object") return null;
+  const object = value as Record<string, unknown>;
+  for (const key of ["pay_url", "payUrl", "payment_url", "paymentUrl", "cashierUrl", "url", "redirect_url"]) {
+    const candidate = object[key];
+    if (typeof candidate === "string" && candidate.startsWith("https://")) return candidate;
+  }
+  for (const nested of Object.values(object)) {
+    const found = findNekPayPaymentUrl(nested, depth + 1);
+    if (found) return found;
+  }
+  return null;
+}
