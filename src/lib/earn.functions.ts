@@ -377,7 +377,8 @@ export const generatePaymentUrl = createServerFn({ method: "POST" })
     }
 
     const activationFee = settingRow?.activation_fee ?? 100;
-    const callbackHost = publicDomain.replace("https://", "").replace("http://", "").replace(/\\/$/, "");
+    const domainWithoutProtocol = publicDomain.replace("https://", "").replace("http://", "");
+    const callbackHost = domainWithoutProtocol.endsWith("/") ? domainWithoutProtocol.slice(0, -1) : domainWithoutProtocol;
     const notifyUrl = `https://${callbackHost}/api/public/nekpayment-webhook`;
     const orderId = `act_${crypto.randomUUID().replace(/-/g, "").slice(0, 24)}`;
     const params: Record<string, string> = {
