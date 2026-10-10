@@ -110,27 +110,59 @@ export const adminGetDashboard = createServerFn({ method: "POST" })
     const todayStart = new Date(
       Math.floor((Date.now() + 6 * 60 * 60 * 1000) / dhakaDayMs) * dhakaDayMs - 6 * 60 * 60 * 1000,
     );
-    const [[playerStats], [withdrawalStats], [referralStats], [depositStats]] = await Promise.all([
-      db
-        .select({
-          users: sql<number>`count(*)::int`,
-          active24h: sql<number>`count(*) FILTER (WHERE ${players.updated_at} > ${dayAgo})::int`,
-          balance: sql<number>`coalesce(sum(${players.balance}), 0)::int`,
-        })
-        .from(players),
-      db
-        .select({
-          pending: sql<number>`count(*) FILTER (WHERE ${withdrawals.status} = 'pending')::int`,
-          paid: sql<number>`coalesce(sum(${withdrawals.amount}) FILTER (WHERE ${withdrawals.status} = 'approved'), 0)::int`,
-        })
-        .from(withdrawals),
-      db.select({ refs: count(referrals.referred_id) }).from(referrals),
-      db
-        .select({
-          today: sql<number>`coalesce(sum(${payment_transactions.amount}) FILTER (WHERE ${payment_transactions.status} = 'success' AND ${payment_transactions.created_at} >= ${todayStart}), 0)::int`,
-          todayCount: sql<number>`count(*) FILTER (WHERE ${payment_transactions.status} = 'success' AND ${payment_transactions.created_at} >= ${todayStart})::int`,
-        })
-        .from(payment_transactions),
+    // Each metric runs independently: one failing aggregate on the live DB must not blank
+    // the whole dashboard (which showed "…" for every card before). Failures log and fall back.
+    const safe = async <T>(run: () => Promise<T>, fallback: T): Promise<T> => {
+      try {
+        return await run();
+      } catch (error) {
+        console.error("adminGetDashboard metric error:", error);
+        return fallback;
+      }
+    };
+
+    const [playerStats, withdrawalStats, referralStats, depositStats] = await Promise.all([
+      safe(
+        async () =>
+          (
+            await db
+              .select({
+                users: sql<number>`count(*)::int`,
+                active24h: sql<number>`count(*) FILTER (WHERE ${players.updated_at} > ${dayAgo})::int`,
+                balance: sql<number>`coalesce(sum(${players.balance}), 0)::int`,
+              })
+              .from(players)
+          )[0],
+        { users: 0, active24h: 0, balance: 0 },
+      ),
+      safe(
+        async () =>
+          (
+            await db
+              .select({
+                pending: sql<number>`count(*) FILTER (WHERE ${withdrawals.status} = 'pending')::int`,
+                paid: sql<number>`coalesce(sum(${withdrawals.amount}) FILTER (WHERE ${withdrawals.status} = 'approved'), 0)::int`,
+              })
+              .from(withdrawals)
+          )[0],
+        { pending: 0, paid: 0 },
+      ),
+      safe(
+        async () => (await db.select({ refs: count(referrals.referred_id) }).from(referrals))[0],
+        { refs: 0 },
+      ),
+      safe(
+        async () =>
+          (
+            await db
+              .select({
+                today: sql<number>`coalesce(sum(${payment_transactions.amount}) FILTER (WHERE ${payment_transactions.status} = 'success' AND ${payment_transactions.created_at} >= ${todayStart}), 0)::int`,
+                todayCount: sql<number>`count(*) FILTER (WHERE ${payment_transactions.status} = 'success' AND ${payment_transactions.created_at} >= ${todayStart})::int`,
+              })
+              .from(payment_transactions)
+          )[0],
+        { today: 0, todayCount: 0 },
+      ),
     ]);
     return {
       users: playerStats?.users ?? 0,
@@ -281,6 +313,24 @@ export const adminToggleBlock = createServerFn({ method: "POST" })
     const [row] = await db
       .update(players)
       .set({ blocked: data.blocked, updated_at: new Date() })
+      .where(eq(players.tg_id, data.targetTgId))
+      .returning({ tg_id: players.tg_id });
+    if (!row) throw new Error("Player not found.");
+    return { ok: true };
+  });
+
+export const adminToggleActive = createServerFn({ method: "POST" })
+  .validator((data) =>
+    identitySchema
+      .extend({ targetTgId: z.string().trim().min(1).max(64), active: z.boolean() })
+      .parse(data),
+  )
+  .handler(async ({ data }) => {
+    await assertTgAdmin(data);
+    const db = getDb();
+    const [row] = await db
+      .update(players)
+      .set({ is_active: data.active, updated_at: new Date() })
       .where(eq(players.tg_id, data.targetTgId))
       .returning({ tg_id: players.tg_id });
     if (!row) throw new Error("Player not found.");

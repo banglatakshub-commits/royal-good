@@ -33,6 +33,7 @@ import {
   ensureTgAdmin,
   adminUpdateBalance,
   adminToggleBlock,
+  adminToggleActive,
   adminDeleteUser,
   adminSetWithdrawal,
   adminEditWithdrawalNumber,
@@ -232,6 +233,7 @@ function UsersTab() {
   const [q, setQ] = useState("");
   const updBalance = useServerFn(adminUpdateBalance);
   const toggle = useServerFn(adminToggleBlock);
+  const toggleActive = useServerFn(adminToggleActive);
   const delUser = useServerFn(adminDeleteUser);
   const { data = [] } = useQuery({
     queryKey: ["admin-users"],
@@ -254,6 +256,17 @@ function UsersTab() {
   const toggleBlock = async (tg_id: string, blocked: boolean) => {
     try {
       await toggle({ data: { ...myIdent(), targetTgId: tg_id, blocked: !blocked } });
+      qc.invalidateQueries();
+    } catch {
+      alert("আপডেট হয়নি");
+    }
+  };
+  const toggleVerify = async (tg_id: string, isActive: boolean) => {
+    const next = !isActive;
+    if (!confirm(next ? "এই ইউজারকে ভেরিফায়েড (অ্যাক্টিভ) করবেন?" : "আন-ভেরিফায়েড করবেন?"))
+      return;
+    try {
+      await toggleActive({ data: { ...myIdent(), targetTgId: tg_id, active: next } });
       qc.invalidateQueries();
     } catch {
       alert("আপডেট হয়নি");
@@ -285,13 +298,16 @@ function UsersTab() {
               {u.name} {u.blocked && <span className="text-xs text-destructive">(ব্লকড)</span>}
             </p>
             <p className="truncate text-xs text-muted-foreground">@{u.tg_id}</p>
-            <span
+            <button
+              type="button"
+              onClick={() => toggleVerify(u.tg_id, u.is_active)}
+              title="ট্যাপ করে ভেরিফাই / আন-ভেরিফাই করুন"
               className={`mt-0.5 inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${
                 u.is_active ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
               }`}
             >
               {u.is_active ? "✓ ভেরিফায়েড" : "✗ আন-ভেরিফায়েড"}
-            </span>
+            </button>
           </div>
           <p className="font-display text-lg text-primary">৳{u.balance}</p>
           <button
