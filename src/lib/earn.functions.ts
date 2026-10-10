@@ -377,7 +377,7 @@ export const generatePaymentUrl = createServerFn({ method: "POST" })
     }
 
     const activationFee = settingRow?.activation_fee ?? 100;
-    const callbackHost = publicDomain.replace(/^https?:\\/\\//i, "").replace(/\\/$/, "");
+    const callbackHost = publicDomain.replace("https://", "").replace("http://", "").replace(/\\/$/, "");
     const notifyUrl = `https://${callbackHost}/api/public/nekpayment-webhook`;
     const orderId = `act_${crypto.randomUUID().replace(/-/g, "").slice(0, 24)}`;
     const params: Record<string, string> = {
@@ -402,6 +402,14 @@ export const generatePaymentUrl = createServerFn({ method: "POST" })
     };
     params.sign = generateNekSign(params, secretKey);
 
+    // Create the pending row before contacting the gateway, so an immediate callback can find it.
+    await db.insert(payment_transactions).values({
+      id: orderId,
+      tg_id: user.id,
+      amount: activationFee,
+      status: "pending",
+    });
+
     try {
       const response = await fetch("https://api.nekpayment.com/pay/web", {
         method: "POST",
@@ -414,27 +422,18 @@ export const generatePaymentUrl = createServerFn({ method: "POST" })
       try {
         payload = JSON.parse(raw);
       } catch {
-        return { ok: false, error: "NekPay থেকে সঠিক response আসেনি। Merchant settings ও API response যাচাই করুন।" };
+        throw new Error("NekPay returned an unreadable response");
       }
-      if (!response.ok) {
-        console.error("NekPay activation order request failed:", response.status);
-        return { ok: false, error: "NekPay পেমেন্ট রিকোয়েস্ট গ্রহণ করেনি। সেটিংস যাচাই করুন।" };
-      }
+      if (!response.ok) throw new Error(`NekPay request failed (HTTP ${response.status})`);
       const paymentUrl = findNekPayPaymentUrl(payload);
-      if (!paymentUrl) {
-        console.error("NekPay activation response had no recognized payment URL field.");
-        return { ok: false, error: "NekPay response-এ payment URL পাওয়া যায়নি। ডকুমেন্টেশনের response field যাচাই করুন।" };
-      }
-      await db.insert(payment_transactions).values({
-        id: orderId,
-        tg_id: user.id,
-        amount: activationFee,
-        status: "pending",
-      });
+      if (!paymentUrl) throw new Error("NekPay response did not contain a recognized payment URL");
       return { ok: true, url: paymentUrl };
     } catch (error) {
+      await db.update(payment_transactions)
+        .set({ status: "failed", updated_at: new Date() })
+        .where(eq(payment_transactions.id, orderId));
       console.error("NekPay activation request error:", error);
-      return { ok: false, error: "NekPay-এর সঙ্গে সংযোগ করা যায়নি। পরে আবার চেষ্টা করুন।" };
+      return { ok: false, error: "NekPay পেমেন্ট লিংক তৈরি করতে পারেনি। Merchant settings, Pay Type ও API response যাচাই করুন।" };
     }
   });
 
@@ -443,7 +442,7 @@ function findNekPayPaymentUrl(value: unknown, depth = 0): string | null {
   const object = value as Record<string, unknown>;
   for (const key of ["pay_url", "payUrl", "payment_url", "paymentUrl", "cashierUrl", "url", "redirect_url"]) {
     const candidate = object[key];
-    if (typeof candidate === "string" && /^https:\\/\\//i.test(candidate)) return candidate;
+    if (typeof candidate === "string" && candidate.startsWith("https://")) return candidate;
   }
   for (const nested of Object.values(object)) {
     const found = findNekPayPaymentUrl(nested, depth + 1);
