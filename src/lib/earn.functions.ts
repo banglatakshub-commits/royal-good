@@ -180,95 +180,129 @@ export type WithdrawResult = {
 export const requestWithdraw = createServerFn({ method: "POST" })
   .validator((data) => identity.extend(withdrawRequestSchema.shape).parse(data))
   .handler(async ({ data }): Promise<WithdrawResult> => {
-    const user = authenticatedUser(data);
-    const db = getDb();
-
-    return db.transaction(async (tx) => {
-      const [player] = await tx
-        .select({
-          blocked: players.blocked,
-          balance: players.balance,
-          is_active: players.is_active,
-        })
-        .from(players)
-        .where(eq(players.tg_id, user.id))
-        .for("update")
-        .limit(1);
-
-      const [[config], [rejected]] = await Promise.all([
-        tx.select().from(app_settings).where(eq(app_settings.id, 1)).limit(1),
-        tx
-          .select({ count: count(withdrawals.id) })
-          .from(withdrawals)
-          .where(and(eq(withdrawals.tg_id, user.id), eq(withdrawals.status, "rejected"))),
-      ]);
-      const minWithdraw = config?.min_withdraw ?? 50;
-      const rejectedCount = rejected?.count ?? 0;
-      const activationFee = config?.activation_fee ?? 100;
-      const minimum = effectiveMinWithdraw(minWithdraw, rejectedCount);
-
-      const refuse = (
-        code: WithdrawErrorCode,
-        error: string,
-        balance: number | null,
-        isActive: boolean,
-      ): WithdrawResult => ({ ok: false, error, code, balance, minimum, isActive });
-
-      if (!player) return refuse("account_missing", WITHDRAW_MESSAGES.account_missing, null, false);
-      // Enforced here, not only in the UI: activation and blocks gate withdrawals on the server.
-      if (player.blocked)
-        return refuse("account_blocked", WITHDRAW_MESSAGES.account_blocked, player.balance, false);
-
-      const check = validateWithdraw({
-        amount: data.amount,
-        number: data.number,
-        method: data.method,
-        balance: player.balance,
-        minWithdraw,
-        rejectedCount,
-        isActive: player.is_active,
-        activationFee,
-      });
-      if (!check.ok || check.method === null) {
-        return refuse(
-          check.code ?? "amount_invalid",
-          check.message,
-          player.balance,
-          player.is_active,
-        );
-      }
-
-      const newBalance = await creditWithin(
-        tx as unknown as BalanceExecutor,
-        user.id,
-        -check.amount,
-      );
-      // The row was locked above, so this only fails if the balance moved under us.
-      if (newBalance === null) {
-        return refuse(
-          "balance_insufficient",
-          `${WITHDRAW_MESSAGES.balance_insufficient}। আপনার মেইন ব্যালেন্স ৳${player.balance}।`,
-          player.balance,
-          player.is_active,
-        );
-      }
-      await tx.insert(withdrawals).values({
-        tg_id: user.id,
-        name: user.name,
-        amount: check.amount,
-        method: check.method,
-        number: check.number,
-        status: "pending",
-      });
+    let user: ReturnType<typeof authenticatedUser>;
+    try {
+      user = authenticatedUser(data);
+    } catch (authError: unknown) {
+      console.error("requestWithdraw auth error:", authError);
       return {
-        ok: true,
-        error: null,
+        ok: false,
+        error: "টেলিগ্রাম সেশন মেয়াদোত্তীর্ণ — অ্যাপটি বন্ধ করে আবার খুলে চেষ্টা করুন।",
         code: null,
-        balance: newBalance,
-        minimum: check.minimum,
+        balance: null,
+        minimum: 0,
         isActive: true,
       };
-    });
+    }
+    const db = getDb();
+
+    try {
+      return await db.transaction(async (tx) => {
+        const [player] = await tx
+          .select({
+            blocked: players.blocked,
+            balance: players.balance,
+            is_active: players.is_active,
+          })
+          .from(players)
+          .where(eq(players.tg_id, user.id))
+          .for("update")
+          .limit(1);
+
+        const [[config], [rejected]] = await Promise.all([
+          tx.select().from(app_settings).where(eq(app_settings.id, 1)).limit(1),
+          tx
+            .select({ count: count(withdrawals.id) })
+            .from(withdrawals)
+            .where(and(eq(withdrawals.tg_id, user.id), eq(withdrawals.status, "rejected"))),
+        ]);
+        const minWithdraw = config?.min_withdraw ?? 50;
+        const rejectedCount = rejected?.count ?? 0;
+        const activationFee = config?.activation_fee ?? 100;
+        const minimum = effectiveMinWithdraw(minWithdraw, rejectedCount);
+
+        const refuse = (
+          code: WithdrawErrorCode,
+          error: string,
+          balance: number | null,
+          isActive: boolean,
+        ): WithdrawResult => ({ ok: false, error, code, balance, minimum, isActive });
+
+        if (!player)
+          return refuse("account_missing", WITHDRAW_MESSAGES.account_missing, null, false);
+        // Enforced here, not only in the UI: activation and blocks gate withdrawals on the server.
+        if (player.blocked)
+          return refuse(
+            "account_blocked",
+            WITHDRAW_MESSAGES.account_blocked,
+            player.balance,
+            false,
+          );
+
+        const check = validateWithdraw({
+          amount: data.amount,
+          number: data.number,
+          method: data.method,
+          balance: player.balance,
+          minWithdraw,
+          rejectedCount,
+          isActive: player.is_active,
+          activationFee,
+        });
+        if (!check.ok || check.method === null) {
+          return refuse(
+            check.code ?? "amount_invalid",
+            check.message,
+            player.balance,
+            player.is_active,
+          );
+        }
+
+        const newBalance = await creditWithin(
+          tx as unknown as BalanceExecutor,
+          user.id,
+          -check.amount,
+        );
+        // The row was locked above, so this only fails if the balance moved under us.
+        if (newBalance === null) {
+          return refuse(
+            "balance_insufficient",
+            `${WITHDRAW_MESSAGES.balance_insufficient}। আপনার মেইন ব্যালেন্স ৳${player.balance}।`,
+            player.balance,
+            player.is_active,
+          );
+        }
+        await tx.insert(withdrawals).values({
+          tg_id: user.id,
+          name: user.name,
+          amount: check.amount,
+          method: check.method,
+          number: check.number,
+          status: "pending",
+        });
+        return {
+          ok: true,
+          error: null,
+          code: null,
+          balance: newBalance,
+          minimum: check.minimum,
+          isActive: true,
+        };
+      });
+    } catch (dbError: unknown) {
+      // Surface the real reason instead of a generic "try again", so a config/DB
+      // problem is visible rather than hidden behind the form's catch-all.
+      console.error("requestWithdraw db error:", dbError);
+      const reason = dbError instanceof Error ? dbError.message : "অজানা সমস্যা";
+      return {
+        ok: false,
+        error: `উইথড্র ব্যর্থ: ${reason}`,
+        code: null,
+        balance: null,
+        minimum: 0,
+        isActive: true,
+      };
+    }
   });
 
 /**

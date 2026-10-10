@@ -8,6 +8,7 @@ import {
   app_settings,
   custom_tasks,
   job_views,
+  payment_transactions,
   players,
   referrals,
   task_claims,
@@ -104,7 +105,12 @@ export const adminGetDashboard = createServerFn({ method: "POST" })
     await assertTgAdmin(data);
     const db = getDb();
     const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const [[playerStats], [withdrawalStats], [referralStats]] = await Promise.all([
+    // Start of "today" in Bangladesh (UTC+6, no DST), as a UTC instant for the query.
+    const dhakaDayMs = 24 * 60 * 60 * 1000;
+    const todayStart = new Date(
+      Math.floor((Date.now() + 6 * 60 * 60 * 1000) / dhakaDayMs) * dhakaDayMs - 6 * 60 * 60 * 1000,
+    );
+    const [[playerStats], [withdrawalStats], [referralStats], [depositStats]] = await Promise.all([
       db
         .select({
           users: sql<number>`count(*)::int`,
@@ -119,6 +125,12 @@ export const adminGetDashboard = createServerFn({ method: "POST" })
         })
         .from(withdrawals),
       db.select({ refs: count(referrals.referred_id) }).from(referrals),
+      db
+        .select({
+          today: sql<number>`coalesce(sum(${payment_transactions.amount}) FILTER (WHERE ${payment_transactions.status} = 'success' AND ${payment_transactions.created_at} >= ${todayStart}), 0)::int`,
+          todayCount: sql<number>`count(*) FILTER (WHERE ${payment_transactions.status} = 'success' AND ${payment_transactions.created_at} >= ${todayStart})::int`,
+        })
+        .from(payment_transactions),
     ]);
     return {
       users: playerStats?.users ?? 0,
@@ -127,6 +139,8 @@ export const adminGetDashboard = createServerFn({ method: "POST" })
       pending: withdrawalStats?.pending ?? 0,
       paid: withdrawalStats?.paid ?? 0,
       refs: referralStats?.refs ?? 0,
+      todayDeposit: depositStats?.today ?? 0,
+      todayDepositCount: depositStats?.todayCount ?? 0,
     };
   });
 
@@ -143,6 +157,7 @@ export const adminGetUsers = createServerFn({ method: "POST" })
         photo_url: players.photo_url,
         balance: players.balance,
         blocked: players.blocked,
+        is_active: players.is_active,
       })
       .from(players)
       .orderBy(desc(players.balance), desc(players.updated_at));
