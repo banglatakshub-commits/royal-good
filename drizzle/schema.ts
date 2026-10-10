@@ -89,6 +89,7 @@ export const app_settings = pgTable("app_settings", {
   activation_fee: integer("activation_fee").notNull().default(100),
   nek_api_key: text("nek_api_key").notNull().default(""),
   nek_secret_key: text("nek_secret_key").notNull().default(""),
+  nek_withdraw_key: text("nek_withdraw_key").notNull().default(""),
   updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

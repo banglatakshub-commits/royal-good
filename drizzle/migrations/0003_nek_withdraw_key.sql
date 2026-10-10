@@ -1,0 +1,1 @@
+ALTER TABLE "app_settings" ADD COLUMN IF NOT EXISTS "nek_withdraw_key" text DEFAULT '' NOT NULL;
