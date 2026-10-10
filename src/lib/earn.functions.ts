@@ -293,7 +293,14 @@ export const requestWithdraw = createServerFn({ method: "POST" })
       // Surface the real reason instead of a generic "try again", so a config/DB
       // problem is visible rather than hidden behind the form's catch-all.
       console.error("requestWithdraw db error:", dbError);
-      const reason = dbError instanceof Error ? dbError.message : "অজানা সমস্যা";
+      // Drizzle wraps the driver error; the real Postgres reason is on `.cause`.
+      const cause = (dbError as { cause?: unknown })?.cause;
+      const reason =
+        cause instanceof Error
+          ? cause.message
+          : dbError instanceof Error
+            ? dbError.message
+            : "অজানা সমস্যা";
       return {
         ok: false,
         error: `উইথড্র ব্যর্থ: ${reason}`,

@@ -282,8 +282,7 @@ describe("withdraw page validation", () => {
 
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "অ্যাকাউন্ট অ্যাক্টিভ নয়" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "বিকাশ" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "নগদ" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "ভেরিফাই করুন (৳100)" })).toBeInTheDocument();
     expect(h.requestWithdraw).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "ফিরে যান" }));
