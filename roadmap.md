@@ -7,6 +7,7 @@
 - [x] Add a short Royal Good cinematic app-opening intro matching the current palette; automatic dismissal, skip, reduced motion, and mobile/desktop rendering verified with no runtime errors.
 - [x] Apply the supplied blue–pink palette throughout the app; shared colors and floating navigation updated, existing functions preserved, ten pages checked with no runtime errors or horizontal overflow.
 - [x] Improve navigation speed and reduce redundant network waits; route/cache tests pass, user/admin pages open without runtime errors, and existing typing daily limit remains enforced. Live typing completion was not exercised because the preview user's daily limit was exhausted.
+- [x] Validate the withdraw form: payment method, Bangladeshi mobile number, minimum withdraw (with the rejected-withdrawal escalation), main balance and the account-activation gate. The page and `requestWithdraw` now share one rule set in `src/lib/withdraw-validation.ts`; 29 tests cover the rules and the rendered page. A real payout was not exercised because this environment has no Telegram Mini App session or PostgreSQL.
 
 ## Done
 

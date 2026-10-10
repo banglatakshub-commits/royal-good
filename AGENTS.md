@@ -13,6 +13,7 @@
 
 - Admin panel is public route /admin (ssr:false); admin identity comes from verified Telegram Mini App initData and must match ADMIN_TELEGRAM_IDS or the admin_telegram_ids PostgreSQL allowlist (currently seeded with 'shanto_as'); all admin reads/writes go through authenticated server functions in src/lib/admin.functions.ts.
 - App-wide tunables (rewards, min withdraw, spins) come from app_settings row id=1 via src/lib/settings.ts — so admin can change them without code.
+- Withdrawal rules live in src/lib/withdraw-validation.ts and are shared by /withdraw and requestWithdraw: payment method, Bangladeshi mobile format (normalized to 11 local digits), minimum withdraw including the rejected-count escalation, main balance, and the activation gate. Change a rule there once, never in only one of the two callers.
 - App-wide presentation colors and gradients live in semantic tokens in src/styles.css; transparent page backgrounds expose the shared canvas so all routes stay visually consistent.
 - The app-opening intro is a lightweight root-mounted overlay that never delays route rendering or data loading; dismiss it automatically, support skipping, and respect reduced motion.
 - Cache read-only queries briefly and preload routes on navigation intent; earning mutations always validate fresh server state so caching never authorizes rewards.

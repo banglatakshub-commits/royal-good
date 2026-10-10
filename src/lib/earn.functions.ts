@@ -15,6 +15,13 @@ import { creditWithin, type BalanceExecutor } from "./balance.server";
 import { getDhakaNoonWindow } from "./dhaka-window";
 import { requireTelegramUser, telegramIdentityMatches } from "./telegram-auth.server";
 import { generateNekSign } from "./nekpayment";
+import {
+  effectiveMinWithdraw,
+  validateWithdraw,
+  WITHDRAW_MESSAGES,
+  withdrawRequestSchema,
+  type WithdrawErrorCode,
+} from "./withdraw-validation";
 import { payment_transactions } from "../../drizzle/schema";
 
 const identity = z.object({
@@ -154,21 +161,24 @@ export const doSpin = createServerFn({ method: "POST" })
     });
   });
 
+/** Result of a withdrawal attempt; always carries the state the client needs to correct itself. */
+export type WithdrawResult = {
+  ok: boolean;
+  /** User-facing Bengali reason; null when the request succeeded. */
+  error: string | null;
+  /** Machine-readable reason, so the page can react (open activation, fix a field). */
+  code: WithdrawErrorCode | null;
+  /** Authoritative main balance, even on failure, so the wallet cache is never left stale. */
+  balance: number | null;
+  /** Minimum this user must withdraw right now (admin setting × rejected-withdrawal escalation). */
+  minimum: number;
+  isActive: boolean;
+};
+
 /** Validate and create a withdrawal, deducting the balance in the same transaction. */
 export const requestWithdraw = createServerFn({ method: "POST" })
-  .validator((data) =>
-    identity
-      .extend({
-        amount: z.number().int().positive().max(10_000_000),
-        method: z.enum(["bKash", "Nagad"]),
-        number: z
-          .string()
-          .trim()
-          .regex(/^\d{11,14}$/),
-      })
-      .parse(data),
-  )
-  .handler(async ({ data }) => {
+  .validator((data) => identity.extend(withdrawRequestSchema.shape).parse(data))
+  .handler(async ({ data }): Promise<WithdrawResult> => {
     const user = authenticatedUser(data);
     const db = getDb();
 
@@ -183,12 +193,6 @@ export const requestWithdraw = createServerFn({ method: "POST" })
         .where(eq(players.tg_id, user.id))
         .for("update")
         .limit(1);
-      if (!player) return { ok: false, error: "অ্যাকাউন্ট পাওয়া যায়নি" };
-      if (player.blocked) return { ok: false, error: "আপনার অ্যাকাউন্ট ব্লক করা হয়েছে" };
-      // Enforced here, not only in the UI: the activation fee gates withdrawals on the server.
-      if (!player.is_active) {
-        return { ok: false, error: "উইথড্র করতে আগে আপনার অ্যাকাউন্ট অ্যাক্টিভ করুন" };
-      }
 
       const [[config], [rejected]] = await Promise.all([
         tx.select().from(app_settings).where(eq(app_settings.id, 1)).limit(1),
@@ -197,30 +201,79 @@ export const requestWithdraw = createServerFn({ method: "POST" })
           .from(withdrawals)
           .where(and(eq(withdrawals.tg_id, user.id), eq(withdrawals.status, "rejected"))),
       ]);
-      const baseMin = config?.min_withdraw ?? 50;
-      const minimum = baseMin * Math.min(2 ** (rejected?.count ?? 0), 8);
-      if (data.amount < minimum) return { ok: false, error: `সর্বনিম্ন উইথড্র ৳${minimum}` };
-      if (data.amount > player.balance) return { ok: false, error: "পর্যাপ্ত ব্যালেন্স নেই" };
+      const minWithdraw = config?.min_withdraw ?? 50;
+      const rejectedCount = rejected?.count ?? 0;
+      const activationFee = config?.activation_fee ?? 100;
+      const minimum = effectiveMinWithdraw(minWithdraw, rejectedCount);
+
+      const refuse = (
+        code: WithdrawErrorCode,
+        error: string,
+        balance: number | null,
+        isActive: boolean,
+      ): WithdrawResult => ({ ok: false, error, code, balance, minimum, isActive });
+
+      if (!player) return refuse("account_missing", WITHDRAW_MESSAGES.account_missing, null, false);
+      // Enforced here, not only in the UI: activation and blocks gate withdrawals on the server.
+      if (player.blocked)
+        return refuse("account_blocked", WITHDRAW_MESSAGES.account_blocked, player.balance, false);
+
+      const check = validateWithdraw({
+        amount: data.amount,
+        number: data.number,
+        method: data.method,
+        balance: player.balance,
+        minWithdraw,
+        rejectedCount,
+        isActive: player.is_active,
+        activationFee,
+      });
+      if (!check.ok || check.method === null) {
+        return refuse(
+          check.code ?? "amount_invalid",
+          check.message,
+          player.balance,
+          player.is_active,
+        );
+      }
 
       const newBalance = await creditWithin(
         tx as unknown as BalanceExecutor,
         user.id,
-        -data.amount,
+        -check.amount,
       );
-      if (newBalance === null) return { ok: false, error: "পর্যাপ্ত ব্যালেন্স নেই" };
+      // The row was locked above, so this only fails if the balance moved under us.
+      if (newBalance === null) {
+        return refuse(
+          "balance_insufficient",
+          `${WITHDRAW_MESSAGES.balance_insufficient}। আপনার মেইন ব্যালেন্স ৳${player.balance}।`,
+          player.balance,
+          player.is_active,
+        );
+      }
       await tx.insert(withdrawals).values({
         tg_id: user.id,
         name: user.name,
-        amount: data.amount,
-        method: data.method,
-        number: data.number,
+        amount: check.amount,
+        method: check.method,
+        number: check.number,
         status: "pending",
       });
-      return { ok: true, balance: newBalance };
+      return {
+        ok: true,
+        error: null,
+        code: null,
+        balance: newBalance,
+        minimum: check.minimum,
+        isActive: true,
+      };
     });
   });
 
-/** Read only the signed-in user's withdrawal history (including their own payout number). */
+/**
+ * Read only the signed-in user's withdrawal history (including their own payout number) plus the
+ * server-side withdrawal state the form validates against: main balance, minimum, activation.
+ */
 export const getMyWithdrawalHistory = createServerFn({ method: "POST" })
   .validator((data) => identity.parse(data))
   .handler(async ({ data }) => {
@@ -245,21 +298,36 @@ export const getMyWithdrawalHistory = createServerFn({ method: "POST" })
         .from(withdrawals)
         .where(and(eq(withdrawals.tg_id, user.id), eq(withdrawals.status, "rejected"))),
       db
-        .select({ is_active: players.is_active })
+        .select({
+          is_active: players.is_active,
+          blocked: players.blocked,
+          balance: players.balance,
+        })
         .from(players)
         .where(eq(players.tg_id, user.id))
         .limit(1),
       db
-        .select({ activation_fee: app_settings.activation_fee })
+        .select({
+          activation_fee: app_settings.activation_fee,
+          min_withdraw: app_settings.min_withdraw,
+        })
         .from(app_settings)
         .where(eq(app_settings.id, 1))
         .limit(1),
     ]);
+    const rejectedCount = rejectedRows[0]?.count ?? 0;
+    const minWithdraw = settingRow?.min_withdraw ?? 50;
     return {
       rows: rows.map((row) => ({ ...row, created_at: row.created_at.toISOString() })),
-      rejectedCount: rejectedRows[0]?.count ?? 0,
+      rejectedCount,
       isActive: playerRow?.is_active ?? false,
+      isBlocked: playerRow?.blocked ?? false,
       activationFee: settingRow?.activation_fee ?? 100,
+      /** Main balance straight from PostgreSQL; the client cache is seeded from this. */
+      balance: playerRow?.balance ?? 0,
+      minWithdraw,
+      /** What this user must reach right now, after the rejected-withdrawal escalation. */
+      minimum: effectiveMinWithdraw(minWithdraw, rejectedCount),
     };
   });
 
@@ -373,12 +441,17 @@ export const generatePaymentUrl = createServerFn({ method: "POST" })
       return { ok: false, error: "NekPay Merchant ID ও Collection Key অ্যাডমিন সেটিংসে দিতে হবে।" };
     }
     if (!payType || !publicDomain) {
-      return { ok: false, error: "Railway-তে NEKPAY_PAY_TYPE এবং RAILWAY_PUBLIC_DOMAIN সেট করা নেই।" };
+      return {
+        ok: false,
+        error: "Railway-তে NEKPAY_PAY_TYPE এবং RAILWAY_PUBLIC_DOMAIN সেট করা নেই।",
+      };
     }
 
     const activationFee = settingRow?.activation_fee ?? 100;
     const domainWithoutProtocol = publicDomain.replace("https://", "").replace("http://", "");
-    const callbackHost = domainWithoutProtocol.endsWith("/") ? domainWithoutProtocol.slice(0, -1) : domainWithoutProtocol;
+    const callbackHost = domainWithoutProtocol.endsWith("/")
+      ? domainWithoutProtocol.slice(0, -1)
+      : domainWithoutProtocol;
     const notifyUrl = `https://${callbackHost}/api/public/nekpayment-webhook`;
     const orderId = `act_${crypto.randomUUID().replace(/-/g, "").slice(0, 24)}`;
     const params: Record<string, string> = {
@@ -397,11 +470,14 @@ export const generatePaymentUrl = createServerFn({ method: "POST" })
         minute: "2-digit",
         second: "2-digit",
         hourCycle: "h23",
-      }).format(new Date()).replace(",", ""),
+      })
+        .format(new Date())
+        .replace(",", ""),
       goods_name: "Account Activation",
       sign_type: "MD5",
     };
-    params.sign = generateNekSign(params, secretKey);
+    // Bracket access: `params` is a Record, and the project forbids dot access on index signatures.
+    params["sign"] = generateNekSign(params, secretKey);
 
     // Create the pending row before contacting the gateway, so an immediate callback can find it.
     await db.insert(payment_transactions).values({
@@ -430,18 +506,31 @@ export const generatePaymentUrl = createServerFn({ method: "POST" })
       if (!paymentUrl) throw new Error("NekPay response did not contain a recognized payment URL");
       return { ok: true, url: paymentUrl };
     } catch (error) {
-      await db.update(payment_transactions)
+      await db
+        .update(payment_transactions)
         .set({ status: "failed", updated_at: new Date() })
         .where(eq(payment_transactions.id, orderId));
       console.error("NekPay activation request error:", error);
-      return { ok: false, error: "NekPay পেমেন্ট লিংক তৈরি করতে পারেনি। Merchant settings, Pay Type ও API response যাচাই করুন।" };
+      return {
+        ok: false,
+        error:
+          "NekPay পেমেন্ট লিংক তৈরি করতে পারেনি। Merchant settings, Pay Type ও API response যাচাই করুন।",
+      };
     }
   });
 
 function findNekPayPaymentUrl(value: unknown, depth = 0): string | null {
   if (depth > 5 || !value || typeof value !== "object") return null;
   const object = value as Record<string, unknown>;
-  for (const key of ["pay_url", "payUrl", "payment_url", "paymentUrl", "cashierUrl", "url", "redirect_url"]) {
+  for (const key of [
+    "pay_url",
+    "payUrl",
+    "payment_url",
+    "paymentUrl",
+    "cashierUrl",
+    "url",
+    "redirect_url",
+  ]) {
     const candidate = object[key];
     if (typeof candidate === "string" && candidate.startsWith("https://")) return candidate;
   }
