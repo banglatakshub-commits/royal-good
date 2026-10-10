@@ -50,8 +50,11 @@ export const NEK_PAY_TYPES = {
   bank: "2220",
 } as const;
 
-/** Default deposit channel when the caller does not pick one (bKash is the most common in BD). */
-export const NEK_DEFAULT_PAY_TYPE: string = NEK_PAY_TYPES.bkash;
+/**
+ * Default deposit pay_type when the caller does not pick a channel. BANK2 (2220) makes the
+ * NekPay cashier show every enabled channel (bKash + Nagad), so the user chooses on the gateway.
+ */
+export const NEK_DEFAULT_PAY_TYPE: string = NEK_PAY_TYPES.bank;
 
 /** Resolves a deposit pay_type from a method label, falling back to the default channel. */
 export function resolveNekPayType(method?: string): string {
