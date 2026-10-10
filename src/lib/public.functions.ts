@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, or } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "@/lib/database";
 import { custom_tasks, players, withdrawals } from "../../drizzle/schema";
@@ -50,7 +50,8 @@ export const getRecentWithdrawals = createServerFn({ method: "GET" }).handler(as
     })
     .from(withdrawals)
     .leftJoin(players, eq(withdrawals.tg_id, players.tg_id))
-    .where(eq(withdrawals.status, "approved"))
+    // Show every request (pending + approved) in the live feed, not only paid ones.
+    .where(or(eq(withdrawals.status, "pending"), eq(withdrawals.status, "approved")))
     .orderBy(desc(withdrawals.created_at))
     .limit(20);
 

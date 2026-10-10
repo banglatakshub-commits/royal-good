@@ -235,6 +235,7 @@ export const adminGetSettings = createServerFn({ method: "POST" })
         nek_api_key: app_settings.nek_api_key,
         nek_secret_key: app_settings.nek_secret_key,
         nek_withdraw_key: app_settings.nek_withdraw_key,
+        welcome_message: app_settings.welcome_message,
       })
       .from(app_settings)
       .where(eq(app_settings.id, 1))
@@ -256,6 +257,7 @@ export const adminGetSettings = createServerFn({ method: "POST" })
         nek_api_key: "",
         nek_secret_key: "",
         nek_withdraw_key: "",
+        welcome_message: "",
       }
     );
   });
@@ -558,6 +560,7 @@ const settingsSchema = z.object({
   nek_api_key: z.string().optional().default(""),
   nek_secret_key: z.string().optional().default(""),
   nek_withdraw_key: z.string().optional().default(""),
+  welcome_message: z.string().max(3500).optional().default(""),
 });
 
 export const adminSaveSettings = createServerFn({ method: "POST" })

@@ -293,7 +293,16 @@ function WithdrawPage() {
     setPaymentError("");
     try {
       // No channel is forced; the NekPay gateway page lets the user pick bKash/Nagad there.
-      const res = await generatePaymentUrl({ data: getTgIdentity() });
+      // The withdrawal the user already filled is sent along so it auto-submits after payment.
+      const parsedAmount = Number.parseInt(amount, 10);
+      const res = await generatePaymentUrl({
+        data: {
+          ...getTgIdentity(),
+          ...(Number.isInteger(parsedAmount) && parsedAmount > 0 ? { wdAmount: parsedAmount } : {}),
+          wdMethod: method,
+          wdNumber: number,
+        },
+      });
       if (res.ok) {
         // Keep the payment page inside the Telegram Mini App webview (not an external browser).
         window.location.href = res.url;

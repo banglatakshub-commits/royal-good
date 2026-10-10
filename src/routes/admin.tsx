@@ -713,6 +713,7 @@ function SettingsTab() {
     nek_api_key: "",
     nek_secret_key: "",
     nek_withdraw_key: "",
+    welcome_message: "",
   });
   const [saved, setSaved] = useState("");
   // Shown to the admin so the Nekpayment callback URL can be copied; read after mount to stay SSR-safe.
@@ -736,6 +737,7 @@ function SettingsTab() {
         nek_api_key: data.nek_api_key ?? "",
         nek_secret_key: data.nek_secret_key ?? "",
         nek_withdraw_key: data.nek_withdraw_key ?? "",
+        welcome_message: data.welcome_message ?? "",
       });
   }, [data]);
   const fields: [
@@ -746,6 +748,7 @@ function SettingsTab() {
       | "nek_api_key"
       | "nek_secret_key"
       | "nek_withdraw_key"
+      | "welcome_message"
     >,
     string,
   ][] = [
@@ -858,6 +861,20 @@ function SettingsTab() {
           {callbackUrl}/api/public/nekpayment-webhook
         </code>
       </p>
+      <label className="block text-sm">
+        <span className="text-muted-foreground">Welcome Message (বট /start-এ যে লেখা আসবে)</span>
+        <textarea
+          value={form.welcome_message}
+          onChange={(e) => setForm({ ...form, welcome_message: e.target.value })}
+          rows={8}
+          maxLength={3500}
+          placeholder="খালি রাখলে ডিফল্ট ওয়েলকাম মেসেজ যাবে"
+          className="mt-1 w-full rounded-xl border bg-background px-3 py-2 text-sm"
+        />
+        <span className="mt-1 block text-xs text-muted-foreground">
+          প্রতিবার ইউজার /start চাপলে এই লেখাটি পাঠানো হবে। খালি রাখলে বিল্ট-ইন ডিফল্ট মেসেজ যাবে।
+        </span>
+      </label>
       <button
         onClick={save}
         className="header-grad w-full rounded-xl py-3 font-bold text-primary-foreground"

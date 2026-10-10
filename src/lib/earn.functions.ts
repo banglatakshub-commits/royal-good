@@ -18,6 +18,8 @@ import { generateNekSign, resolveNekPayType, NEK_DEFAULT_PUBLIC_DOMAIN } from ".
 import { getRequest } from "@tanstack/react-start/server";
 import {
   effectiveMinWithdraw,
+  isWithdrawMethod,
+  normalizeWithdrawNumber,
   validateWithdraw,
   WITHDRAW_MESSAGES,
   withdrawRequestSchema,
@@ -461,6 +463,10 @@ function requestPublicHost(): string {
 
 const paymentStartSchema = identity.extend({
   payMethod: z.enum(["bkash", "nagad"]).optional(),
+  // Withdrawal the user filled before activating — auto-submitted once payment succeeds.
+  wdAmount: z.number().int().min(1).max(10_000_000).optional(),
+  wdMethod: z.string().trim().max(20).optional(),
+  wdNumber: z.string().trim().max(20).optional(),
 });
 
 /** Starts the existing account-activation payment through NekPay collection API. */
@@ -539,12 +545,23 @@ export const generatePaymentUrl = createServerFn({ method: "POST" })
     // Bracket access: `params` is a Record, and the project forbids dot access on index signatures.
     params["sign"] = generateNekSign(params, secretKey);
 
+    // Remember the withdrawal the user already filled, so it can be auto-submitted on success.
+    const wdNumber = normalizeWithdrawNumber(data.wdNumber ?? "");
+    const wdMethod = isWithdrawMethod(String(data.wdMethod ?? "")) ? String(data.wdMethod) : null;
+    const wdAmount =
+      typeof data.wdAmount === "number" && Number.isInteger(data.wdAmount) && data.wdAmount > 0
+        ? data.wdAmount
+        : null;
+
     // Create the pending row before contacting the gateway, so an immediate callback can find it.
     await db.insert(payment_transactions).values({
       id: orderId,
       tg_id: user.id,
       amount: activationFee,
       status: "pending",
+      wd_amount: wdAmount && wdNumber && wdMethod ? wdAmount : null,
+      wd_method: wdAmount && wdNumber && wdMethod ? wdMethod : null,
+      wd_number: wdAmount && wdNumber && wdMethod ? wdNumber : null,
     });
 
     try {

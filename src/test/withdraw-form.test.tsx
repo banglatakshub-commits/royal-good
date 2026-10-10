@@ -281,7 +281,7 @@ describe("withdraw page validation", () => {
     fireEvent.click(submit);
 
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "অ্যাকাউন্ট অ্যাক্টিভ নয়" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "অ্যাকাউন্ট ভেরিফিকেশন" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "ভেরিফাই করুন (৳100)" })).toBeInTheDocument();
     expect(h.requestWithdraw).not.toHaveBeenCalled();
 
@@ -298,7 +298,7 @@ describe("withdraw page validation", () => {
 
     await waitFor(() => expect(fieldError("withdraw-amount-error")).toBe("উইথড্রের পরিমাণ লিখুন"));
     expect(
-      screen.queryByRole("heading", { name: "অ্যাকাউন্ট অ্যাক্টিভ নয়" }),
+      screen.queryByRole("heading", { name: "অ্যাকাউন্ট ভেরিফিকেশন" }),
     ).not.toBeInTheDocument();
     expect(h.requestWithdraw).not.toHaveBeenCalled();
   });

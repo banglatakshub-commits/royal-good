@@ -1,9 +1,30 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createHash, timingSafeEqual } from "node:crypto";
+import { eq } from "drizzle-orm";
+import { getDb } from "@/lib/database";
+import { app_settings } from "../../../../drizzle/schema";
 
 /** Mini App link opened by the /start button. Override with MINI_APP_URL if needed. */
 export const MINI_APP_URL = "https://royal-good-production.up.railway.app/";
 export const MINI_APP_LINK_TEXT = "Life Good — Telegram Earning Mini App";
+
+/** Default welcome text shown on /start until an admin sets a custom one in Settings. */
+export const DEFAULT_WELCOME = [
+  "👑 Royal Good 🇧🇩",
+  "",
+  "💰 ঘরে বসেই ইনকামের নতুন সুযোগ!",
+  "",
+  "⌨️ Typing Job",
+  "🧠 Quiz Job",
+  "📺 Ads Video",
+  "🎁 Daily Spin",
+  "🤝 Referral Bonus",
+  "💸 Withdraw",
+  "",
+  "🚀 আজই যুক্ত হোন Royal Good Family-তে!",
+  "",
+  "✨ Royal Good — Earn Smart, Grow Together! 👑",
+].join("\n");
 
 function appUrl() {
   const configured = process.env["MINI_APP_URL"]?.trim();
@@ -17,9 +38,23 @@ function escapeHtml(value: string) {
 }
 
 /** Builds the welcome message + Start button sent when a user opens the bot. */
-export function buildWelcomeMessage(firstName: string, referralCode = "") {
+export function buildWelcomeMessage(firstName: string, referralCode = "", customMessage = "") {
   const baseUrl = appUrl();
   const webAppUrl = referralCode ? `${baseUrl}?ref=${encodeURIComponent(referralCode)}` : baseUrl;
+  const startButton = {
+    inline_keyboard: [[{ text: "🚀 Start", web_app: { url: webAppUrl } }]],
+  };
+
+  // Admin-configured welcome text (from Settings) is sent verbatim as plain text.
+  const custom = customMessage.trim();
+  if (custom) {
+    return {
+      text: custom.slice(0, 3800),
+      disable_web_page_preview: true,
+      reply_markup: startButton,
+    };
+  }
+
   const name = escapeHtml(firstName);
   const divider = "━━━━━━━━━━━━━━━━━━";
 
@@ -114,12 +149,26 @@ export const Route = createFileRoute("/api/public/telegram-webhook")({
             ? message.from.first_name.slice(0, 40)
             : "বন্ধু";
 
+        // Admin-set welcome text from Settings; fall back to the built-in default.
+        let welcome = DEFAULT_WELCOME;
+        try {
+          const [row] = await getDb()
+            .select({ welcome_message: app_settings.welcome_message })
+            .from(app_settings)
+            .where(eq(app_settings.id, 1))
+            .limit(1);
+          const custom = row?.welcome_message?.trim();
+          if (custom) welcome = custom;
+        } catch {
+          // DB unavailable: use the default welcome.
+        }
+
         await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             chat_id: chatId,
-            ...buildWelcomeMessage(firstName, referralCode),
+            ...buildWelcomeMessage(firstName, referralCode, welcome),
           }),
         }).catch(() => {});
 

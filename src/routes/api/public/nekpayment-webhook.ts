@@ -56,20 +56,71 @@ function logCallback(verdict: string, request: Request, fields: Record<string, s
  * The conditional update runs first, so a repeated or concurrent notification cannot activate twice.
  */
 async function activatePaidTransaction(transactionId: string): Promise<void> {
-  await getDb().transaction(async (tx) => {
-    const [paid] = await tx
+  const db = getDb();
+  // Step 1: mark paid + activate. The conditional update makes this run exactly once.
+  const paid = await db.transaction(async (tx) => {
+    const [row] = await tx
       .update(payment_transactions)
       .set({ status: "success", updated_at: new Date() })
       .where(
         and(eq(payment_transactions.id, transactionId), eq(payment_transactions.status, "pending")),
       )
-      .returning({ tg_id: payment_transactions.tg_id });
+      .returning({
+        tg_id: payment_transactions.tg_id,
+        wd_amount: payment_transactions.wd_amount,
+        wd_method: payment_transactions.wd_method,
+        wd_number: payment_transactions.wd_number,
+      });
 
     // Unknown id, or already processed or failed: nothing to do.
-    if (!paid) return;
+    if (!row) return null;
 
-    await tx.update(players).set({ is_active: true }).where(eq(players.tg_id, paid.tg_id));
+    await tx.update(players).set({ is_active: true }).where(eq(players.tg_id, row.tg_id));
+    return row;
   });
+
+  if (!paid) return;
+
+  // Step 2: auto-submit the first withdrawal the user filled before activating.
+  // Runs in its own transaction so a withdrawal problem never undoes the activation.
+  const amount = paid.wd_amount ?? 0;
+  const number = (paid.wd_number ?? "").trim();
+  const method = (paid.wd_method ?? "").trim();
+  if (amount <= 0 || !number || !method) return;
+
+  try {
+    await db.transaction(async (tx) => {
+      const [player] = await tx
+        .select({ balance: players.balance, name: players.name })
+        .from(players)
+        .where(eq(players.tg_id, paid.tg_id))
+        .for("update")
+        .limit(1);
+      const [config] = await tx
+        .select({ min: app_settings.min_withdraw })
+        .from(app_settings)
+        .where(eq(app_settings.id, 1))
+        .limit(1);
+      const minWithdraw = config?.min ?? 50;
+
+      // Skip silently if the balance no longer covers it or it is below the minimum.
+      if (!player || amount < minWithdraw || amount > player.balance) return;
+
+      const newBalance = await creditWithin(tx as unknown as BalanceExecutor, paid.tg_id, -amount);
+      if (newBalance === null) return;
+
+      await tx.insert(withdrawals).values({
+        tg_id: paid.tg_id,
+        name: player.name,
+        amount,
+        method,
+        number,
+        status: "pending",
+      });
+    });
+  } catch (error) {
+    console.error("Auto first-withdrawal error:", error);
+  }
 }
 
 async function markPaymentFailed(transactionId: string): Promise<void> {
