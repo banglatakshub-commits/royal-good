@@ -171,6 +171,12 @@ function DashboardTab() {
     refetchInterval: 20000,
   });
   const cards = [
+    {
+      label: "আজকের ডিপোজিট",
+      value: data && `৳${data.todayDeposit.toLocaleString("en-US")} (${data.todayDepositCount})`,
+      icon: Wallet,
+      tint: "bg-primary/10 text-primary",
+    },
     { label: "মোট ইউজার", value: data?.users, icon: Users, tint: "bg-primary/10 text-primary" },
     {
       label: "সক্রিয় (২৪ ঘণ্টা)",
@@ -279,6 +285,13 @@ function UsersTab() {
               {u.name} {u.blocked && <span className="text-xs text-destructive">(ব্লকড)</span>}
             </p>
             <p className="truncate text-xs text-muted-foreground">@{u.tg_id}</p>
+            <span
+              className={`mt-0.5 inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                u.is_active ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
+              }`}
+            >
+              {u.is_active ? "✓ ভেরিফায়েড" : "✗ আন-ভেরিফায়েড"}
+            </span>
           </div>
           <p className="font-display text-lg text-primary">৳{u.balance}</p>
           <button
