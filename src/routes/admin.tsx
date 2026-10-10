@@ -386,7 +386,7 @@ function WithdrawsTab() {
   });
 
   const sendViaApi = async (id: string) => {
-    if (apiPwd !== "8888") return alert("পাসওয়ার্ড সিলেক্ট করুন");
+    if (apiPwd !== "8888") return alert("ভুল পাসওয়ার্ড");
     setApiBusy(true);
     try {
       const res = await sendApi({ data: { ...myIdent(), id, password: apiPwd } });
@@ -556,18 +556,19 @@ function WithdrawsTab() {
                 )}
                 <span className="ml-1 text-muted-foreground">• পাঠানো হবে ৳{w.amount}</span>
               </div>
-              <select
+              <input
+                type="password"
+                inputMode="numeric"
+                autoComplete="off"
                 value={apiPwd}
                 onChange={(e) => setApiPwd(e.target.value)}
+                placeholder="পাসওয়ার্ড লিখুন"
                 className="w-full rounded-xl border bg-background px-3 py-2 text-sm"
-              >
-                <option value="">-- পাসওয়ার্ড সিলেক্ট করুন --</option>
-                <option value="8888">••••</option>
-              </select>
+              />
               <div className="flex gap-2">
                 <button
                   onClick={() => sendViaApi(w.id)}
-                  disabled={apiBusy || apiPwd !== "8888"}
+                  disabled={apiBusy}
                   className="flex-1 rounded-xl bg-primary py-2 text-sm font-bold text-primary-foreground disabled:opacity-60"
                 >
                   {apiBusy ? "পাঠানো হচ্ছে..." : "API থেকে পাঠান"}
