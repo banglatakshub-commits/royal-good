@@ -515,6 +515,9 @@ export const generatePaymentUrl = createServerFn({ method: "POST" })
       version: "1.0",
       mch_id: merchantId,
       notify_url: notifyUrl,
+      // Front-end return URL: after payment or "Back", the gateway sends the user
+      // here — straight back to the withdraw page inside the Telegram Mini App.
+      page_url: `https://${callbackHost}/withdraw`,
       mch_order_no: orderId,
       pay_type: payType,
       trade_amount: String(activationFee),
