@@ -107,6 +107,7 @@ function WithdrawPage() {
   const [paymentError, setPaymentError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+  const [payingMethod, setPayingMethod] = useState<"bkash" | "nagad" | null>(null);
 
   // প্রতিটি রিজেক্টেড উইথড্রের জন্য সর্বনিম্ন উইথড্র ডাবল হয় (সর্বোচ্চ ৮ গুণ)
   const minimum = serverMinimum ?? effectiveMinWithdraw(minWithdraw, rejectedCount);
@@ -288,12 +289,14 @@ function WithdrawPage() {
     }
   };
 
-  const handlePayment = async () => {
+  const handlePayment = async (payMethod: "bkash" | "nagad") => {
     setIsProcessingPayment(true);
+    setPayingMethod(payMethod);
     setPaymentError("");
     try {
-      const res = await generatePaymentUrl({ data: getTgIdentity() });
+      const res = await generatePaymentUrl({ data: { ...getTgIdentity(), payMethod } });
       if (res.ok) {
+        // Keep the payment page inside the Telegram Mini App webview (not an external browser).
         window.location.href = res.url;
         return;
       }
@@ -303,6 +306,7 @@ function WithdrawPage() {
       setPaymentError("পেমেন্ট লিংক তৈরি করা যায়নি। একটু পরে আবার চেষ্টা করুন।");
     }
     setIsProcessingPayment(false);
+    setPayingMethod(null);
   };
 
   if (done) {
@@ -595,15 +599,25 @@ function WithdrawPage() {
             </p>
           )}
           <div className="space-y-3">
-            <button
-              onClick={handlePayment}
-              disabled={isProcessingPayment}
-              className="header-grad flex w-full items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-bold text-primary-foreground shadow-card disabled:opacity-60"
-            >
-              {isProcessingPayment
-                ? "অপেক্ষা করুন..."
-                : `বিকাশ/নগদ দিয়ে পে করুন (৳${activationFee})`}
-            </button>
+            <p className="text-center text-xs text-muted-foreground">
+              পেমেন্ট মেথড বেছে নিন (৳{activationFee})
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => handlePayment("bkash")}
+                disabled={isProcessingPayment}
+                className="header-grad flex w-full items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-bold text-primary-foreground shadow-card disabled:opacity-60"
+              >
+                {payingMethod === "bkash" ? "অপেক্ষা করুন..." : "বিকাশ"}
+              </button>
+              <button
+                onClick={() => handlePayment("nagad")}
+                disabled={isProcessingPayment}
+                className="header-grad flex w-full items-center justify-center gap-2 rounded-xl py-3.5 text-sm font-bold text-primary-foreground shadow-card disabled:opacity-60"
+              >
+                {payingMethod === "nagad" ? "অপেক্ষা করুন..." : "নগদ"}
+              </button>
+            </div>
             <button
               type="button"
               onClick={() => {

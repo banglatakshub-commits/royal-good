@@ -2,7 +2,13 @@ import { createFileRoute } from "@tanstack/react-router";
 import { and, eq } from "drizzle-orm";
 import { getDb } from "@/lib/database";
 import { verifyNekSign } from "@/lib/nekpayment";
-import { app_settings, payment_transactions, players } from "../../../../drizzle/schema";
+import { creditWithin, type BalanceExecutor } from "@/lib/balance.server";
+import {
+  app_settings,
+  payment_transactions,
+  players,
+  withdrawals,
+} from "../../../../drizzle/schema";
 
 type NotificationParams = Record<string, string>;
 
@@ -75,6 +81,38 @@ async function markPaymentFailed(transactionId: string): Promise<void> {
     );
 }
 
+/**
+ * Finalises an auto-payout (transfer) callback keyed by the withdrawal id (mch_transferId).
+ * Success marks the withdrawal approved; a failure marks it rejected and refunds the user.
+ * The conditional pending-only update makes a repeated callback idempotent, so no double refund.
+ * Gateway codes: 1 = success, 2 = failed (refund), 3 = rejected (refund).
+ */
+async function settlePayoutCallback(withdrawalId: string, tradeResult: string): Promise<void> {
+  if (tradeResult === "1") {
+    await getDb()
+      .update(withdrawals)
+      .set({ status: "approved" })
+      .where(and(eq(withdrawals.id, withdrawalId), eq(withdrawals.status, "pending")));
+    return;
+  }
+  if (tradeResult === "2" || tradeResult === "3") {
+    await getDb().transaction(async (tx) => {
+      const [failed] = await tx
+        .update(withdrawals)
+        .set({ status: "rejected", note: "NEKpay payout failed — refunded" })
+        .where(and(eq(withdrawals.id, withdrawalId), eq(withdrawals.status, "pending")))
+        .returning({ tg_id: withdrawals.tg_id, amount: withdrawals.amount });
+      if (!failed) return; // already settled: no double refund
+      const balance = await creditWithin(
+        tx as unknown as BalanceExecutor,
+        failed.tg_id,
+        failed.amount,
+      );
+      if (balance === null) throw new Error("Payout refund could not be credited.");
+    });
+  }
+}
+
 export const Route = createFileRoute("/api/public/nekpayment-webhook")({
   server: {
     handlers: {
@@ -85,6 +123,25 @@ export const Route = createFileRoute("/api/public/nekpayment-webhook")({
         } catch {
           logCallback("malformed", request);
           return new Response("Malformed notification", { status: 400 });
+        }
+
+        // Payout (transfer) callback: keyed by mch_transferId / merTransferId, no collection order.
+        // Per NEKpay, payout callbacks are not reliably signed, so they are matched by the
+        // withdrawal id and tradeResult rather than by signature.
+        const payoutId = (params["merTransferId"] ?? params["mch_transferId"])?.trim();
+        if (payoutId && !params["mchOrderNo"]) {
+          try {
+            await settlePayoutCallback(payoutId, params["tradeResult"] ?? "");
+            logCallback("payout_accepted", request, {
+              transactionId: payoutId,
+              tradeResult: params["tradeResult"] ?? "",
+            });
+            return new Response("success", { status: 200 });
+          } catch (error) {
+            logCallback("payout_processing_error", request, { transactionId: payoutId });
+            console.error("Nekpayment payout webhook error:", error);
+            return new Response("error", { status: 500 });
+          }
         }
 
         const transactionId = (params["mchOrderNo"] ?? params["merTransferId"])?.trim();

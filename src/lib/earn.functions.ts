@@ -14,7 +14,8 @@ import {
 import { creditWithin, type BalanceExecutor } from "./balance.server";
 import { getDhakaNoonWindow } from "./dhaka-window";
 import { requireTelegramUser, telegramIdentityMatches } from "./telegram-auth.server";
-import { generateNekSign } from "./nekpayment";
+import { generateNekSign, resolveNekPayType, NEK_DEFAULT_PUBLIC_DOMAIN } from "./nekpayment";
+import { getRequest } from "@tanstack/react-start/server";
 import {
   effectiveMinWithdraw,
   validateWithdraw,
@@ -406,9 +407,24 @@ export const recordReferral = createServerFn({ method: "POST" })
 
 export type PaymentStart = { ok: true; url: string } | { ok: false; error: string };
 
+/** Derives the public host (for the callback URL) from the incoming request headers. */
+function requestPublicHost(): string {
+  try {
+    const headers = getRequest().headers;
+    const forwarded = headers.get("x-forwarded-host")?.split(",")[0]?.trim();
+    return (forwarded || headers.get("host")?.trim() || "").replace(/^https?:\/\//, "");
+  } catch {
+    return "";
+  }
+}
+
+const paymentStartSchema = identity.extend({
+  payMethod: z.enum(["bkash", "nagad"]).optional(),
+});
+
 /** Starts the existing account-activation payment through NekPay collection API. */
 export const generatePaymentUrl = createServerFn({ method: "POST" })
-  .validator((data) => identity.parse(data))
+  .validator((data) => paymentStartSchema.parse(data))
   .handler(async ({ data }): Promise<PaymentStart> => {
     const user = authenticatedUser(data);
     const db = getDb();
@@ -435,23 +451,23 @@ export const generatePaymentUrl = createServerFn({ method: "POST" })
 
     const merchantId = settingRow?.nek_api_key.trim() ?? "";
     const secretKey = settingRow?.nek_secret_key.trim() ?? "";
-    const payType = process.env["NEKPAY_PAY_TYPE"]?.trim() ?? "";
-    const publicDomain = process.env["RAILWAY_PUBLIC_DOMAIN"]?.trim() ?? "";
     if (!merchantId || !secretKey) {
       return { ok: false, error: "NekPay Merchant ID ও Collection Key অ্যাডমিন সেটিংসে দিতে হবে।" };
     }
-    if (!payType || !publicDomain) {
-      return {
-        ok: false,
-        error: "Railway-তে NEKPAY_PAY_TYPE এবং RAILWAY_PUBLIC_DOMAIN সেট করা নেই।",
-      };
-    }
+
+    // Pay type is built in (bKash/Nagad/Bank codes); an optional NEKPAY_PAY_TYPE env still overrides.
+    const payType = process.env["NEKPAY_PAY_TYPE"]?.trim() || resolveNekPayType(data.payMethod);
+
+    // Callback host: RAILWAY_PUBLIC_DOMAIN if set, else the request host, else the baked-in domain.
+    const configuredDomain = process.env["RAILWAY_PUBLIC_DOMAIN"]?.trim() ?? "";
+    const rawDomain = (
+      configuredDomain ||
+      requestPublicHost() ||
+      NEK_DEFAULT_PUBLIC_DOMAIN
+    ).replace(/^https?:\/\//, "");
+    const callbackHost = rawDomain.endsWith("/") ? rawDomain.slice(0, -1) : rawDomain;
 
     const activationFee = settingRow?.activation_fee ?? 100;
-    const domainWithoutProtocol = publicDomain.replace("https://", "").replace("http://", "");
-    const callbackHost = domainWithoutProtocol.endsWith("/")
-      ? domainWithoutProtocol.slice(0, -1)
-      : domainWithoutProtocol;
     const notifyUrl = `https://${callbackHost}/api/public/nekpayment-webhook`;
     const orderId = `act_${crypto.randomUUID().replace(/-/g, "").slice(0, 24)}`;
     const params: Record<string, string> = {

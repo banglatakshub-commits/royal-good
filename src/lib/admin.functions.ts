@@ -14,6 +14,7 @@ import {
   withdrawals,
 } from "../../drizzle/schema";
 import { creditWithin, type BalanceExecutor } from "./balance.server";
+import { sendNekPayout, queryNekBalance, NEK_DEFAULT_PUBLIC_DOMAIN } from "./nekpayment";
 import {
   requireTelegramUser,
   telegramIdentityMatches,
@@ -186,6 +187,7 @@ export const adminGetSettings = createServerFn({ method: "POST" })
         activation_fee: app_settings.activation_fee,
         nek_api_key: app_settings.nek_api_key,
         nek_secret_key: app_settings.nek_secret_key,
+        nek_withdraw_key: app_settings.nek_withdraw_key,
       })
       .from(app_settings)
       .where(eq(app_settings.id, 1))
@@ -206,6 +208,7 @@ export const adminGetSettings = createServerFn({ method: "POST" })
         activation_fee: 100,
         nek_api_key: "",
         nek_secret_key: "",
+        nek_withdraw_key: "",
       }
     );
   });
@@ -354,6 +357,118 @@ export const adminEditWithdrawalNumber = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+/** Fixed password that gates the admin "Send via API" auto-payout action. */
+const NEK_API_PASSWORD = "8888";
+
+/** Builds the NEKpay callback URL (used as the payout back_url). Falls back to the baked-in domain. */
+function nekCallbackUrl(): string {
+  const publicDomain =
+    (process.env["RAILWAY_PUBLIC_DOMAIN"] ?? "").trim() || NEK_DEFAULT_PUBLIC_DOMAIN;
+  const host = publicDomain.replace(/^https?:\/\//, "").replace(/\/$/, "");
+  return `https://${host}/api/public/nekpayment-webhook`;
+}
+
+/** Reads the current NEKpay merchant API balance for the admin panel. */
+export const adminGetNekBalance = createServerFn({ method: "POST" })
+  .validator((data) => identitySchema.parse(data))
+  .handler(async ({ data }): Promise<{ balance: number | null }> => {
+    await assertTgAdmin(data);
+    const db = getDb();
+    const [row] = await db
+      .select({
+        nek_api_key: app_settings.nek_api_key,
+        nek_secret_key: app_settings.nek_secret_key,
+        nek_withdraw_key: app_settings.nek_withdraw_key,
+      })
+      .from(app_settings)
+      .where(eq(app_settings.id, 1))
+      .limit(1);
+    const merchantId = row?.nek_api_key.trim() ?? "";
+    if (!merchantId) return { balance: null };
+    const balance = await queryNekBalance({
+      merchantId,
+      keys: [row?.nek_withdraw_key ?? "", row?.nek_secret_key ?? ""],
+    });
+    return { balance };
+  });
+
+/**
+ * Sends a pending withdrawal to NEKpay as an auto payout. Guarded by the 8888 password.
+ * The withdrawal stays pending until the payout back_url callback finalises it
+ * (success -> approved, failure -> rejected + refund), so money never double-sends.
+ */
+export const adminSendNekPayout = createServerFn({ method: "POST" })
+  .validator((data) =>
+    identitySchema
+      .extend({
+        id: z.string().trim().min(1).max(100),
+        password: z.string().trim().max(20),
+      })
+      .parse(data),
+  )
+  .handler(async ({ data }): Promise<{ ok: boolean; error?: string }> => {
+    await assertTgAdmin(data);
+    if (data.password !== NEK_API_PASSWORD) {
+      return { ok: false, error: "ভুল পাসওয়ার্ড" };
+    }
+    const db = getDb();
+    const [[withdrawal], [settingRow]] = await Promise.all([
+      db
+        .select({
+          id: withdrawals.id,
+          tg_id: withdrawals.tg_id,
+          name: withdrawals.name,
+          amount: withdrawals.amount,
+          method: withdrawals.method,
+          number: withdrawals.number,
+          status: withdrawals.status,
+          note: withdrawals.note,
+        })
+        .from(withdrawals)
+        .where(eq(withdrawals.id, data.id))
+        .limit(1),
+      db
+        .select({
+          nek_api_key: app_settings.nek_api_key,
+          nek_withdraw_key: app_settings.nek_withdraw_key,
+        })
+        .from(app_settings)
+        .where(eq(app_settings.id, 1))
+        .limit(1),
+    ]);
+
+    if (!withdrawal) return { ok: false, error: "উইথড্র পাওয়া যায়নি" };
+    if (withdrawal.status !== "pending") return { ok: false, error: "এটি আর পেন্ডিং নেই" };
+    if ((withdrawal.note ?? "").startsWith("API:")) {
+      return { ok: false, error: "এটি ইতিমধ্যে API-তে পাঠানো হয়েছে" };
+    }
+
+    const merchantId = settingRow?.nek_api_key.trim() ?? "";
+    const withdrawKey = settingRow?.nek_withdraw_key.trim() ?? "";
+    if (!merchantId || !withdrawKey) {
+      return { ok: false, error: "সেটিংসে NEKpay API Key ও Withdraw Key দিন।" };
+    }
+
+    const result = await sendNekPayout({
+      merchantId,
+      withdrawKey,
+      transferId: withdrawal.id,
+      amount: withdrawal.amount,
+      method: withdrawal.method,
+      receiveName: withdrawal.name ?? "User",
+      receiveAccount: withdrawal.number,
+      backUrl: nekCallbackUrl(),
+    });
+    if (!result.success) return { ok: false, error: result.message };
+
+    // Accepted by NEKpay: mark it so it is not sent twice; it stays pending until the callback.
+    await db
+      .update(withdrawals)
+      .set({ note: `API: sent${result.tradeNo ? ` (TID ${result.tradeNo})` : ""}` })
+      .where(and(eq(withdrawals.id, withdrawal.id), eq(withdrawals.status, "pending")));
+    return { ok: true };
+  });
+
 const settingsSchema = z.object({
   task_reward: z.number().int().min(0).max(100_000),
   ref_bonus: z.number().int().min(0).max(100_000),
@@ -377,6 +492,7 @@ const settingsSchema = z.object({
   activation_fee: z.number().int().min(0).max(10_000_000).default(100),
   nek_api_key: z.string().optional().default(""),
   nek_secret_key: z.string().optional().default(""),
+  nek_withdraw_key: z.string().optional().default(""),
 });
 
 export const adminSaveSettings = createServerFn({ method: "POST" })

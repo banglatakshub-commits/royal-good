@@ -36,6 +36,8 @@ import {
   adminDeleteUser,
   adminSetWithdrawal,
   adminEditWithdrawalNumber,
+  adminSendNekPayout,
+  adminGetNekBalance,
   adminSaveSettings,
   adminBroadcast,
   adminAddTask,
@@ -338,10 +340,40 @@ function WithdrawsTab() {
   const countRepeat = data.filter((w) => inStatus(w) && !isFirst(w)).length;
 
   const editNum = useServerFn(adminEditWithdrawalNumber);
+  const sendApi = useServerFn(adminSendNekPayout);
+  const getBal = useServerFn(adminGetNekBalance);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [reason, setReason] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [newNumber, setNewNumber] = useState("");
+  const [sendingId, setSendingId] = useState<string | null>(null);
+  const [apiPwd, setApiPwd] = useState("");
+  const [apiBusy, setApiBusy] = useState(false);
+
+  const { data: balInfo } = useQuery({
+    queryKey: ["nek-balance"],
+    queryFn: () => getBal({ data: myIdent() }),
+    refetchInterval: 30000,
+  });
+
+  const sendViaApi = async (id: string) => {
+    if (apiPwd !== "8888") return alert("পাসওয়ার্ড সিলেক্ট করুন");
+    setApiBusy(true);
+    try {
+      const res = await sendApi({ data: { ...myIdent(), id, password: apiPwd } });
+      if (res.ok) {
+        setSendingId(null);
+        setApiPwd("");
+        qc.invalidateQueries();
+      } else {
+        alert(res.error ?? "পাঠানো যায়নি");
+      }
+    } catch {
+      alert("API-তে পাঠানো যায়নি");
+    } finally {
+      setApiBusy(false);
+    }
+  };
 
   const setStatus = async (id: string, status: "approved" | "rejected", rejectReason?: string) => {
     try {
@@ -368,6 +400,16 @@ function WithdrawsTab() {
 
   return (
     <div className="space-y-3">
+      <div className="rounded-2xl bg-card p-3 text-center shadow-sm">
+        <span className="text-sm font-semibold text-primary-deep">
+          💰 NEKpay API ব্যালেন্স:{" "}
+          {balInfo?.balance != null ? (
+            <span className="text-primary">৳{balInfo.balance.toLocaleString("en-US")}</span>
+          ) : (
+            <span className="text-muted-foreground">— (Withdraw Key যাচাই করুন)</span>
+          )}
+        </span>
+      </div>
       <div className="grid grid-cols-2 gap-2">
         <button
           onClick={() => setGroup("first")}
@@ -417,6 +459,11 @@ function WithdrawsTab() {
             </div>
             <p className="font-display text-2xl text-primary">৳{w.amount}</p>
           </div>
+          {w.status === "pending" && (w.note ?? "").startsWith("API:") && (
+            <p className="mt-2 text-xs font-semibold text-primary">
+              ⚡ API-তে পাঠানো হয়েছে — কলব্যাকের অপেক্ষায়
+            </p>
+          )}
           {w.status === "pending" && editingId === w.id && (
             <div className="mt-3 flex gap-2">
               <input
@@ -466,29 +513,87 @@ function WithdrawsTab() {
               </div>
             </div>
           )}
-          {w.status === "pending" && rejectingId !== w.id && editingId !== w.id ? (
-            <div className="mt-3 flex gap-2">
-              <button
-                onClick={() => setStatus(w.id, "approved")}
-                className="flex-1 rounded-xl bg-primary py-2 text-sm font-bold text-primary-foreground"
+          {w.status === "pending" && sendingId === w.id && (
+            <div className="mt-3 space-y-2 rounded-xl border border-primary/30 bg-primary/5 p-3">
+              <p className="text-xs font-semibold text-primary-deep">
+                NEKpay API Auto Payout — পাসওয়ার্ড দিন
+              </p>
+              <div className="rounded-lg bg-background px-3 py-2 text-center text-xs font-semibold">
+                💰 API ব্যালেন্স:{" "}
+                {balInfo?.balance != null ? (
+                  <span className="text-primary">৳{balInfo.balance.toLocaleString("en-US")}</span>
+                ) : (
+                  <span className="text-muted-foreground">— (Withdraw Key যাচাই করুন)</span>
+                )}
+                <span className="ml-1 text-muted-foreground">• পাঠানো হবে ৳{w.amount}</span>
+              </div>
+              <select
+                value={apiPwd}
+                onChange={(e) => setApiPwd(e.target.value)}
+                className="w-full rounded-xl border bg-background px-3 py-2 text-sm"
               >
-                Approve (পেইড)
-              </button>
-              <button
-                onClick={() => {
-                  setEditingId(w.id);
-                  setNewNumber(w.number);
-                }}
-                className="rounded-xl bg-muted px-3 py-2 text-sm font-semibold"
-              >
-                ✏️ নাম্বার
-              </button>
-              <button
-                onClick={() => setRejectingId(w.id)}
-                className="flex-1 rounded-xl bg-destructive py-2 text-sm font-bold text-destructive-foreground"
-              >
-                Reject
-              </button>
+                <option value="">-- পাসওয়ার্ড সিলেক্ট করুন --</option>
+                <option value="8888">••••</option>
+              </select>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => sendViaApi(w.id)}
+                  disabled={apiBusy || apiPwd !== "8888"}
+                  className="flex-1 rounded-xl bg-primary py-2 text-sm font-bold text-primary-foreground disabled:opacity-60"
+                >
+                  {apiBusy ? "পাঠানো হচ্ছে..." : "API থেকে পাঠান"}
+                </button>
+                <button
+                  onClick={() => {
+                    setSendingId(null);
+                    setApiPwd("");
+                  }}
+                  className="rounded-xl bg-muted px-4 py-2 text-sm"
+                >
+                  বাতিল
+                </button>
+              </div>
+            </div>
+          )}
+          {w.status === "pending" &&
+          rejectingId !== w.id &&
+          editingId !== w.id &&
+          sendingId !== w.id ? (
+            <div className="mt-3 space-y-2">
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setStatus(w.id, "approved")}
+                  className="flex-1 rounded-xl bg-primary py-2 text-sm font-bold text-primary-foreground"
+                >
+                  Approve (পেইড)
+                </button>
+                <button
+                  onClick={() => {
+                    setSendingId(w.id);
+                    setApiPwd("");
+                  }}
+                  className="flex-1 rounded-xl bg-primary-deep py-2 text-sm font-bold text-primary-foreground"
+                >
+                  ⚡ Send API
+                </button>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    setEditingId(w.id);
+                    setNewNumber(w.number);
+                  }}
+                  className="rounded-xl bg-muted px-3 py-2 text-sm font-semibold"
+                >
+                  ✏️ নাম্বার
+                </button>
+                <button
+                  onClick={() => setRejectingId(w.id)}
+                  className="flex-1 rounded-xl bg-destructive py-2 text-sm font-bold text-destructive-foreground"
+                >
+                  Reject
+                </button>
+              </div>
             </div>
           ) : w.status !== "pending" ? (
             <div className="mt-2">
@@ -577,6 +682,7 @@ function SettingsTab() {
     activation_fee: 100,
     nek_api_key: "",
     nek_secret_key: "",
+    nek_withdraw_key: "",
   });
   const [saved, setSaved] = useState("");
   // Shown to the admin so the Nekpayment callback URL can be copied; read after mount to stay SSR-safe.
@@ -599,12 +705,17 @@ function SettingsTab() {
         activation_fee: data.activation_fee ?? 100,
         nek_api_key: data.nek_api_key ?? "",
         nek_secret_key: data.nek_secret_key ?? "",
+        nek_withdraw_key: data.nek_withdraw_key ?? "",
       });
   }, [data]);
   const fields: [
     Exclude<
       keyof typeof form,
-      "ads_script_id" | "support_telegram_username" | "nek_api_key" | "nek_secret_key"
+      | "ads_script_id"
+      | "support_telegram_username"
+      | "nek_api_key"
+      | "nek_secret_key"
+      | "nek_withdraw_key"
     >,
     string,
   ][] = [
@@ -686,13 +797,30 @@ function SettingsTab() {
         />
       </label>
       <label className="block text-sm">
-        <span className="text-muted-foreground">Nekpayment Secret Key</span>
+        <span className="text-muted-foreground">
+          Nekpayment Secret Key (Deposit / Collection Key)
+        </span>
         <input
           value={form.nek_secret_key}
           onChange={(e) => setForm({ ...form, nek_secret_key: e.target.value })}
           placeholder="Enter Secret Key"
           className="mt-1 w-full rounded-xl border bg-background px-3 py-2"
         />
+      </label>
+      <label className="block text-sm">
+        <span className="text-muted-foreground">
+          Nekpayment Withdraw Key (Transfer / Payout Key)
+        </span>
+        <input
+          value={form.nek_withdraw_key}
+          onChange={(e) => setForm({ ...form, nek_withdraw_key: e.target.value })}
+          placeholder="Enter Withdraw Key"
+          className="mt-1 w-full rounded-xl border bg-background px-3 py-2"
+        />
+        <span className="mt-1 block text-xs text-muted-foreground">
+          অটো পে-আউট ও API ব্যালেন্সের জন্য দরকার। NEKpay dashboard-এর Transfer/Payout Key হুবহু
+          বসান।
+        </span>
       </label>
       <p className="text-xs text-muted-foreground">
         Nekpayment dashboard-এ Callback URL হিসেবে এটি দিন:{" "}
