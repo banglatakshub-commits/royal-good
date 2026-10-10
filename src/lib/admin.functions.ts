@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { createHash } from "node:crypto";
 import { and, count, desc, eq, isNotNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "@/lib/database";
@@ -534,6 +535,43 @@ export const adminSendNekPayout = createServerFn({ method: "POST" })
       .set({ note: `API: sent${result.tradeNo ? ` (TID ${result.tradeNo})` : ""}` })
       .where(and(eq(withdrawals.id, withdrawal.id), eq(withdrawals.status, "pending")));
     return { ok: true };
+  });
+
+/** Registers the Telegram webhook so /start reaches this app's welcome handler. */
+export const adminSetTelegramWebhook = createServerFn({ method: "POST" })
+  .validator((data) => identitySchema.parse(data))
+  .handler(async ({ data }): Promise<{ ok: boolean; url?: string; error?: string }> => {
+    await assertTgAdmin(data);
+    const botToken = process.env["TELEGRAM_API_KEY"]?.trim();
+    if (!botToken) return { ok: false, error: "TELEGRAM_API_KEY সেট করা নেই।" };
+    const domain = (process.env["RAILWAY_PUBLIC_DOMAIN"]?.trim() || NEK_DEFAULT_PUBLIC_DOMAIN)
+      .replace(/^https?:\/\//, "")
+      .replace(/\/$/, "");
+    const url = `https://${domain}/api/public/telegram-webhook`;
+    // Same formula as webhookSecret() in the webhook route, so the handler accepts these calls.
+    const secretToken = createHash("sha256")
+      .update(`tg-webhook:${botToken}`)
+      .digest("hex")
+      .slice(0, 48);
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${botToken}/setWebhook`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          url,
+          secret_token: secretToken,
+          allowed_updates: ["message"],
+          drop_pending_updates: true,
+        }),
+        signal: AbortSignal.timeout(15000),
+      });
+      const body = (await res.json()) as { ok?: boolean; description?: string };
+      if (body?.ok) return { ok: true, url };
+      return { ok: false, error: body?.description ?? "Telegram setWebhook ব্যর্থ হয়েছে।" };
+    } catch (error) {
+      console.error("setWebhook error:", error);
+      return { ok: false, error: "Telegram-এ সংযোগ করা যায়নি।" };
+    }
   });
 
 const settingsSchema = z.object({
