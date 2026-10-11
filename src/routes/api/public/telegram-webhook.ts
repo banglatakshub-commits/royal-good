@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { getDb } from "@/lib/database";
+import { recordReferralForTelegramUser } from "@/lib/referral.functions";
 import { app_settings } from "../../../../drizzle/schema";
 
 /** Mini App link opened by the /start button. Override with MINI_APP_URL if needed. */
@@ -28,7 +29,9 @@ export const DEFAULT_WELCOME = [
 
 function appUrl() {
   const configured = process.env["MINI_APP_URL"]?.trim();
-  return configured && /^https:\/\//.test(configured) ? configured : MINI_APP_URL;
+  return configured && /^https:\/\//.test(configured)
+    ? configured.replace(/\/?$/, "/")
+    : MINI_APP_URL;
 }
 
 function escapeHtml(value: string) {
@@ -38,9 +41,7 @@ function escapeHtml(value: string) {
 /** Builds the welcome message + Start button sent when a user opens the bot. */
 export function buildWelcomeMessage(firstName: string, referralCode = "", customMessage = "") {
   const baseUrl = appUrl();
-  const launchUrl = new URL(baseUrl);
-  if (referralCode) launchUrl.searchParams.set("ref", referralCode);
-  const webAppUrl = launchUrl.toString();
+  const webAppUrl = referralCode ? `${baseUrl}?ref=${encodeURIComponent(referralCode)}` : baseUrl;
   const startButton = {
     inline_keyboard: [[{ text: "🚀 Start", web_app: { url: webAppUrl } }]],
   };
@@ -84,7 +85,7 @@ export function buildWelcomeMessage(firstName: string, referralCode = "", custom
     "",
     divider,
     "👇 নিচের <b>Start</b> বাটনে চাপ দিয়ে এখনই শুরু করুন!",
-    `🔗 <a href="${escapeHtml(webAppUrl)}">${escapeHtml(MINI_APP_LINK_TEXT)}</a>`,
+    `🔗 <a href="${escapeHtml(baseUrl)}">${escapeHtml(MINI_APP_LINK_TEXT)}</a>`,
   ].join("\n");
 
   return {
@@ -105,7 +106,7 @@ type TelegramUpdate = {
   message?: {
     text?: unknown;
     chat?: { id?: unknown };
-    from?: { first_name?: unknown };
+    from?: { id?: unknown; first_name?: unknown; username?: unknown };
   };
 };
 
@@ -148,6 +149,22 @@ export const Route = createFileRoute("/api/public/telegram-webhook")({
           typeof message?.from?.first_name === "string"
             ? message.from.first_name.slice(0, 40)
             : "বন্ধু";
+
+        // Record the referral right here, so clicking a referral link counts even if the user
+        // never taps the Start button. Idempotent, self-referral-safe; failures don't block /start.
+        const fromId = message?.from?.id;
+        const referredId =
+          typeof fromId === "number" || typeof fromId === "string" ? String(fromId) : "";
+        const username = typeof message?.from?.username === "string" ? message.from.username : null;
+        if (referralCode && referredId) {
+          await recordReferralForTelegramUser({
+            referredId,
+            referrerCode: referralCode,
+            referredName: firstName,
+            username,
+            chatId: typeof chatId === "number" ? chatId : null,
+          }).catch((error) => console.error("Referral record error:", error));
+        }
 
         // Admin-set welcome text from Settings; fall back to the built-in default.
         let welcome = DEFAULT_WELCOME;
