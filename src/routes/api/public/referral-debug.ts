@@ -2,6 +2,11 @@ import { createFileRoute } from "@tanstack/react-router";
 import { desc, eq, sql } from "drizzle-orm";
 import { getDb } from "@/lib/database";
 import { players, referrals } from "../../../../drizzle/schema";
+import { recentStarts } from "./telegram-webhook";
+
+function count(rows: { c: number }[]): number {
+  return rows[0]?.c ?? 0;
+}
 
 /**
  * Read-only referral diagnostics. No secrets, no writes.
@@ -22,12 +27,12 @@ export const Route = createFileRoute("/api/public/referral-debug")({
           const url = new URL(request.url);
           const ref = (url.searchParams.get("ref") ?? "").trim().replace(/^@/, "");
 
-          const [{ c: totalPlayers }] = await db
-            .select({ c: sql<number>`count(*)::int` })
-            .from(players);
-          const [{ c: totalReferrals }] = await db
-            .select({ c: sql<number>`count(*)::int` })
-            .from(referrals);
+          const totalPlayers = count(
+            await db.select({ c: sql<number>`count(*)::int` }).from(players),
+          );
+          const totalReferrals = count(
+            await db.select({ c: sql<number>`count(*)::int` }).from(referrals),
+          );
 
           const recent = await db
             .select({
@@ -53,10 +58,12 @@ export const Route = createFileRoute("/api/public/referral-debug")({
               .from(players)
               .where(eq(players.tg_id, ref))
               .limit(1);
-            const [{ c: refCount }] = await db
-              .select({ c: sql<number>`count(*)::int` })
-              .from(referrals)
-              .where(eq(referrals.referrer_id, ref));
+            const refCount = count(
+              await db
+                .select({ c: sql<number>`count(*)::int` })
+                .from(referrals)
+                .where(eq(referrals.referrer_id, ref)),
+            );
             referrer = {
               code: ref,
               foundAsPlayer: Boolean(row),
@@ -67,6 +74,7 @@ export const Route = createFileRoute("/api/public/referral-debug")({
 
           return json({
             ok: true,
+            recentStarts,
             totalPlayers,
             totalReferrals,
             recentReferrals: recent.map((r) => ({

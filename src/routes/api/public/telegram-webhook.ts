@@ -110,6 +110,16 @@ type TelegramUpdate = {
   };
 };
 
+/** Diagnostic ring buffer: the last 25 /start events this process saw. Read via referral-debug. */
+export type StartLog = {
+  at: string;
+  fromId: string;
+  rawText: string;
+  code: string;
+  outcome: string;
+};
+export const recentStarts: StartLog[] = [];
+
 export const Route = createFileRoute("/api/public/telegram-webhook")({
   server: {
     handlers: {
@@ -156,15 +166,33 @@ export const Route = createFileRoute("/api/public/telegram-webhook")({
         const referredId =
           typeof fromId === "number" || typeof fromId === "string" ? String(fromId) : "";
         const username = typeof message?.from?.username === "string" ? message.from.username : null;
+
+        let outcome = referralCode ? "pending" : "no-code-in-start";
         if (referralCode && referredId) {
-          await recordReferralForTelegramUser({
-            referredId,
-            referrerCode: referralCode,
-            referredName: firstName,
-            username,
-            chatId: typeof chatId === "number" ? chatId : null,
-          }).catch((error) => console.error("Referral record error:", error));
+          try {
+            const result = await recordReferralForTelegramUser({
+              referredId,
+              referrerCode: referralCode,
+              referredName: firstName,
+              username,
+              chatId: typeof chatId === "number" ? chatId : null,
+            });
+            outcome = result.reason;
+          } catch (error) {
+            outcome = "error:" + (error instanceof Error ? error.message : String(error));
+            console.error("Referral record error:", error);
+          }
         }
+
+        // Diagnostic: remember what this /start actually contained and how the referral resolved.
+        recentStarts.unshift({
+          at: new Date().toISOString(),
+          fromId: referredId,
+          rawText: text.slice(0, 120),
+          code: referralCode,
+          outcome,
+        });
+        if (recentStarts.length > 25) recentStarts.length = 25;
 
         // Admin-set welcome text from Settings; fall back to the built-in default.
         let welcome = DEFAULT_WELCOME;
