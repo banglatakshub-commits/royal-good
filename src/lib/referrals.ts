@@ -18,11 +18,11 @@ export function myRefCode() {
 }
 
 export function myRefLink() {
-  // ?startapp= launches the Mini App directly and ALWAYS passes start_param — including for accounts
-  // that already started the bot before (for those, a ?start= link sends no /start to the webhook, so
-  // the referral never records — confirmed via live data). startReferralTracking reads start_param
-  // on app open and records the referral client-side. Needs the bot's Main Mini App enabled in BotFather.
-  return `https://t.me/${BOT_USERNAME}?startapp=${encodeURIComponent(myRefCode())}`;
+  // ?start= opens the bot chat so the welcome message shows. On mobile Telegram the code is sent to
+  // the webhook immediately (even for users who already started the bot), which records the referral
+  // server-side; when the user then taps the welcome's Start button, the Mini App opens with ?ref=CODE
+  // and startReferralTracking records it as a backup. Both paths are idempotent.
+  return `https://t.me/${BOT_USERNAME}?start=${encodeURIComponent(myRefCode())}`;
 }
 
 function incomingRefCode(): string | null {
