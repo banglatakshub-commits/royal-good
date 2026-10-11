@@ -376,6 +376,13 @@ export const getMyWithdrawalHistory = createServerFn({ method: "POST" })
   });
 
 /** Record a referral once and atomically credit the referring Telegram user. */
+/**
+ * TEMPORARY (testing): count a referral without the usual guards — credit the referrer even if the
+ * new user already has a balance, and create the referrer's profile stub if they haven't opened the
+ * app yet. Set this to false once referral counting is verified to restore anti-farming protection.
+ */
+export const FORCE_REFERRAL = true;
+
 export const recordReferral = createServerFn({ method: "POST" })
   .validator((data) => identity.extend({ code: z.string().trim().min(1).max(64) }).parse(data))
   .handler(async ({ data }) => {
@@ -401,16 +408,15 @@ export const recordReferral = createServerFn({ method: "POST" })
 
     return db.transaction(async (tx) => {
       const [me] = await tx
-        .select({ blocked: players.blocked })
+        .select({ balance: players.balance, blocked: players.blocked })
         .from(players)
         .where(eq(players.tg_id, user.id))
         .for("update")
         .limit(1);
-      // Earnings can race referral recording; balance is not proof of attribution.
-      // The unique referred_id below enforces one lifetime referral per user.
       if (!me || me.blocked) return { ok: false };
+      if (!FORCE_REFERRAL && me.balance > 0) return { ok: false };
 
-      const [referrer] = await tx
+      let [referrer] = await tx
         .select({ tg_id: players.tg_id, blocked: players.blocked })
         .from(players)
         .where(
@@ -421,6 +427,19 @@ export const recordReferral = createServerFn({ method: "POST" })
           ),
         )
         .limit(1);
+      // Force mode: if the referrer hasn't opened the app yet but the code is a numeric Telegram id,
+      // create a stub profile so the referral still counts during testing.
+      if (!referrer && FORCE_REFERRAL && /^\d+$/.test(code)) {
+        await tx
+          .insert(players)
+          .values({ tg_id: code, name: "User", balance: 0 })
+          .onConflictDoNothing();
+        [referrer] = await tx
+          .select({ tg_id: players.tg_id, blocked: players.blocked })
+          .from(players)
+          .where(eq(players.tg_id, code))
+          .limit(1);
+      }
       if (!referrer || referrer.blocked || referrer.tg_id === user.id) return { ok: false };
 
       const [setting] = await tx
@@ -438,7 +457,7 @@ export const recordReferral = createServerFn({ method: "POST" })
         })
         .onConflictDoNothing()
         .returning({ referred_id: referrals.referred_id });
-      if (!inserted) return { ok: true };
+      if (!inserted) return { ok: false };
 
       const balance = await creditWithin(
         tx as unknown as BalanceExecutor,

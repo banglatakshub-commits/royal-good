@@ -33,24 +33,32 @@ function incomingRefCode(): string | null {
   return startParam || queryCode || null;
 }
 
-/** Record the incoming Telegram start parameter once; PostgreSQL enforces uniqueness too. */
+/**
+ * Record the incoming Telegram referral code. Retries briefly because Telegram's initData /
+ * start_param may not be ready the instant the app mounts. PostgreSQL's unique constraint on
+ * referred_id stops any double credit, so no local dedup flag is kept — which also means
+ * delete-and-retry testing works.
+ */
 export async function recordIncomingReferral() {
-  const code = incomingRefCode();
-  if (!code) return;
-  const identity = getTgIdentity();
-  if (
-    code === identity.tgId ||
-    (identity.username && code.toLowerCase() === identity.username.toLowerCase())
-  )
-    return;
-
-  const key = `lg_ref_done_${identity.tgId}_${code}`;
-  if (localStorage.getItem(key)) return;
-  try {
-    const result = await recordReferral({ data: { ...identity, code } });
-    if (result.ok && typeof localStorage !== "undefined") localStorage.setItem(key, "1");
-  } catch (error) {
-    console.error("Referral recording error:", error);
+  for (let attempt = 0; attempt < 12; attempt++) {
+    const identity = getTgIdentity();
+    const code = incomingRefCode();
+    if (identity.tgId && code) {
+      if (
+        code === identity.tgId ||
+        (identity.username && code.toLowerCase() === identity.username.toLowerCase())
+      )
+        return;
+      try {
+        await recordReferral({ data: { ...identity, code } });
+      } catch (error) {
+        console.error("Referral recording error:", error);
+      }
+      return;
+    }
+    // No referral code present at all — give the WebApp a moment, then stop.
+    if (!code && attempt > 2) return;
+    await new Promise((resolve) => setTimeout(resolve, 400));
   }
 }
 
