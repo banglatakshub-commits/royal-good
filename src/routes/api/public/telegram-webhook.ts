@@ -179,7 +179,12 @@ export const Route = createFileRoute("/api/public/telegram-webhook")({
             });
             outcome = result.reason;
           } catch (error) {
-            outcome = "error:" + (error instanceof Error ? error.message : String(error));
+            const msg = error instanceof Error ? error.message : String(error);
+            const cause =
+              error instanceof Error && error.cause
+                ? " || " + String((error.cause as { message?: string })?.message ?? error.cause)
+                : "";
+            outcome = "error:" + msg + cause;
             console.error("Referral record error:", error);
           }
         }
