@@ -28,9 +28,7 @@ export const DEFAULT_WELCOME = [
 
 function appUrl() {
   const configured = process.env["MINI_APP_URL"]?.trim();
-  return configured && /^https:\/\//.test(configured)
-    ? configured.replace(/\/?$/, "/")
-    : MINI_APP_URL;
+  return configured && /^https:\/\//.test(configured) ? configured : MINI_APP_URL;
 }
 
 function escapeHtml(value: string) {
@@ -40,7 +38,9 @@ function escapeHtml(value: string) {
 /** Builds the welcome message + Start button sent when a user opens the bot. */
 export function buildWelcomeMessage(firstName: string, referralCode = "", customMessage = "") {
   const baseUrl = appUrl();
-  const webAppUrl = referralCode ? `${baseUrl}?ref=${encodeURIComponent(referralCode)}` : baseUrl;
+  const launchUrl = new URL(baseUrl);
+  if (referralCode) launchUrl.searchParams.set("ref", referralCode);
+  const webAppUrl = launchUrl.toString();
   const startButton = {
     inline_keyboard: [[{ text: "🚀 Start", web_app: { url: webAppUrl } }]],
   };
@@ -84,7 +84,7 @@ export function buildWelcomeMessage(firstName: string, referralCode = "", custom
     "",
     divider,
     "👇 নিচের <b>Start</b> বাটনে চাপ দিয়ে এখনই শুরু করুন!",
-    `🔗 <a href="${escapeHtml(baseUrl)}">${escapeHtml(MINI_APP_LINK_TEXT)}</a>`,
+    `🔗 <a href="${escapeHtml(webAppUrl)}">${escapeHtml(MINI_APP_LINK_TEXT)}</a>`,
   ].join("\n");
 
   return {

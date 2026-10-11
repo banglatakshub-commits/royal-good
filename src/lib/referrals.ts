@@ -26,29 +26,67 @@ function incomingRefCode(): string | null {
   const startParam = (
     window as Window & { Telegram?: { WebApp?: { initDataUnsafe?: { start_param?: string } } } }
   ).Telegram?.WebApp?.initDataUnsafe?.start_param;
-  const queryCode = new URLSearchParams(window.location.search).get("ref");
-  return startParam || queryCode || null;
+  const query = new URLSearchParams(window.location.search);
+  return startParam || query.get("tgWebAppStartParam") || query.get("ref") || null;
 }
 
-/** Record the incoming Telegram start parameter once; PostgreSQL enforces uniqueness too. */
-export async function recordIncomingReferral() {
-  const code = incomingRefCode();
-  if (!code) return;
-  const identity = getTgIdentity();
-  if (
-    code === identity.tgId ||
-    (identity.username && code.toLowerCase() === identity.username.toLowerCase())
-  )
-    return;
+/** Retry until acknowledged; uniqueness and crediting are enforced by PostgreSQL. */
+export function startReferralTracking() {
+  let code = incomingRefCode();
+  let stopped = false;
+  let busy = false;
+  let complete = false;
 
-  const key = `lg_ref_done_${identity.tgId}_${code}`;
-  if (localStorage.getItem(key)) return;
-  try {
-    const result = await recordReferral({ data: { ...identity, code } });
-    if (result.ok && typeof localStorage !== "undefined") localStorage.setItem(key, "1");
-  } catch (error) {
-    console.error("Referral recording error:", error);
-  }
+  const attempt = async () => {
+    if (stopped || busy || complete) return;
+    code ||= incomingRefCode();
+    const identity = getTgIdentity();
+    // Never submit the preview identity while the Telegram SDK is still loading.
+    if (!identity.initData) return;
+    const key = `lg_ref_pending_${identity.tgId}`;
+    try {
+      code ||= sessionStorage.getItem(key);
+      if (code) sessionStorage.setItem(key, code);
+    } catch {
+      // Storage can be disabled in Telegram's webview; keep the code in memory.
+    }
+    if (!code) return;
+    if (
+      code === identity.tgId ||
+      (identity.username && code.toLowerCase() === identity.username.toLowerCase())
+    ) {
+      complete = true;
+      return;
+    }
+    busy = true;
+    try {
+      const result = await recordReferral({ data: { ...identity, code } });
+      if (result.ok) {
+        complete = true;
+        try {
+          sessionStorage.removeItem(key);
+        } catch {
+          // A repeated request is safe even if storage is unavailable.
+        }
+      }
+    } catch (error) {
+      console.error("Referral recording error:", error);
+    } finally {
+      busy = false;
+    }
+  };
+
+  void attempt();
+  const timer = window.setInterval(() => {
+    if (document.visibilityState === "visible") void attempt();
+  }, 8000);
+  const onFocus = () => void attempt();
+  window.addEventListener("focus", onFocus);
+  return () => {
+    stopped = true;
+    window.clearInterval(timer);
+    window.removeEventListener("focus", onFocus);
+  };
 }
 
 export function useReferrals() {

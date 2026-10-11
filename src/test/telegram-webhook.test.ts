@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildWelcomeMessage, MINI_APP_URL } from "@/routes/api/public/telegram-webhook";
 
 describe("telegram /start welcome message", () => {
+  afterEach(() => vi.unstubAllEnvs());
   it("includes the mini app link in text and as a Start web_app button", () => {
     const msg = buildWelcomeMessage("Rahim");
     expect(msg.text).toContain(
@@ -35,6 +36,18 @@ describe("telegram /start welcome message", () => {
     expect(msg.text).not.toContain("<b>A&B</b>");
     expect(msg.reply_markup.inline_keyboard[0]?.[0]?.web_app?.url).toBe(
       `${MINI_APP_URL}?ref=REF123`,
+    );
+  });
+
+  it("keeps attribution in the text link as well as the button", () => {
+    expect(buildWelcomeMessage("Rahim", "123").text).toContain(`href="${MINI_APP_URL}?ref=123"`);
+  });
+
+  it("preserves existing query parameters in a configured app URL", () => {
+    vi.stubEnv("MINI_APP_URL", "https://example.com/app?theme=dark#home");
+    const msg = buildWelcomeMessage("Rahim", "123");
+    expect(msg.reply_markup.inline_keyboard[0]?.[0]?.web_app?.url).toBe(
+      "https://example.com/app?theme=dark&ref=123#home",
     );
   });
 
