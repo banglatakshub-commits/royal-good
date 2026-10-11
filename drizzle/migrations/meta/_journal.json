@@ -43,6 +43,13 @@
       "when": 1791662268259,
       "tag": "0005_welcome_and_autowithdraw",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791680000000,
+      "tag": "0006_fix_referrals_legacy_columns",
+      "breakpoints": true
     }
   ]
 }
