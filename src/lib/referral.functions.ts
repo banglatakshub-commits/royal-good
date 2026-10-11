@@ -1,9 +1,88 @@
 import { createServerFn } from "@tanstack/react-start";
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "@/lib/database";
-import { referrals } from "../../drizzle/schema";
+import { app_settings, players, referrals } from "../../drizzle/schema";
+import { creditWithin, type BalanceExecutor } from "./balance.server";
 import { requireTelegramUser, telegramIdentityMatches } from "./telegram-auth.server";
+
+/**
+ * Records a referral straight from a Telegram /start event (server-trusted, no Mini App needed),
+ * so a referral link counts the moment the new user opens the bot. Idempotent and self-referral-safe.
+ */
+export async function recordReferralForTelegramUser(opts: {
+  referredId: string;
+  referrerCode: string;
+  referredName?: string | null;
+  username?: string | null;
+  chatId?: number | null;
+}): Promise<void> {
+  const referredId = opts.referredId.trim();
+  const code = opts.referrerCode.trim().replace(/^@/, "");
+  if (!referredId || !code || code === referredId) return;
+  if (opts.username && code.toLowerCase() === opts.username.toLowerCase()) return;
+
+  const db = getDb();
+  // Ensure the new user has a player row (also stores chat_id for broadcasts).
+  await db
+    .insert(players)
+    .values({
+      tg_id: referredId,
+      name: opts.referredName || "User",
+      username: opts.username ?? null,
+      chat_id: opts.chatId ?? null,
+      balance: 0,
+    })
+    .onConflictDoNothing();
+
+  await db.transaction(async (tx) => {
+    const [me] = await tx
+      .select({ balance: players.balance, blocked: players.blocked })
+      .from(players)
+      .where(eq(players.tg_id, referredId))
+      .for("update")
+      .limit(1);
+    // Only brand-new users (no earnings yet) can be referred, so existing users can't be farmed.
+    if (!me || me.blocked || me.balance > 0) return;
+
+    const [referrer] = await tx
+      .select({ tg_id: players.tg_id, blocked: players.blocked })
+      .from(players)
+      .where(
+        or(
+          eq(players.tg_id, code),
+          eq(players.chat_id, /^\d+$/.test(code) ? Number(code) : -1),
+          sql`lower(${players.username}) = lower(${code})`,
+        ),
+      )
+      .limit(1);
+    if (!referrer || referrer.blocked || referrer.tg_id === referredId) return;
+
+    const [setting] = await tx
+      .select({ ref_bonus: app_settings.ref_bonus })
+      .from(app_settings)
+      .where(eq(app_settings.id, 1))
+      .limit(1);
+
+    const [inserted] = await tx
+      .insert(referrals)
+      .values({
+        referred_id: referredId,
+        referrer_id: referrer.tg_id,
+        referred_name: opts.referredName ?? null,
+      })
+      .onConflictDoNothing()
+      .returning({ referred_id: referrals.referred_id });
+    if (!inserted) return;
+
+    const balance = await creditWithin(
+      tx as unknown as BalanceExecutor,
+      referrer.tg_id,
+      setting?.ref_bonus ?? 5,
+    );
+    if (balance === null) throw new Error("Referral bonus could not be credited.");
+  });
+}
 
 const identity = z.object({
   initData: z.string().max(8192).optional(),
