@@ -1,0 +1,150 @@
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { Wallet, HelpCircle, ShieldCheck, ChevronRight } from "lucide-react";
+import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useBalance } from "@/lib/wallet";
+import { getTgIdentity, getTgUser } from "@/lib/telegram";
+import { bindAdminId, ensureTgAdmin } from "@/lib/admin.functions";
+import { getAppSettings } from "@/lib/settings.functions";
+import { BottomNav } from "@/components/BottomNav";
+import { WithdrawBanner } from "@/components/WithdrawBanner";
+import { supportUsernameSchema } from "@/lib/support";
+
+export const Route = createFileRoute("/profile")({
+  head: () => ({
+    meta: [
+      { title: "Profile — Life Good" },
+      { name: "description", content: "আপনার প্রোফাইল আর ইনকাম দেখুন।" },
+      { property: "og:title", content: "Profile — Life Good" },
+      { property: "og:description", content: "আপনার প্রোফাইল আর ইনকাম দেখুন।" },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
+    ],
+  }),
+  component: Profile,
+});
+
+function Profile() {
+  const balance = useBalance();
+  const [user, setUser] = useState(getTgUser);
+
+  useEffect(() => setUser(getTgUser()), []);
+
+  const identity = getTgIdentity();
+  const myId = identity.tgId;
+  const { data: supportUsername = "" } = useQuery({
+    queryKey: ["support-telegram"],
+    staleTime: 0,
+    queryFn: async () => {
+      const data = await getAppSettings();
+      const parsed = supportUsernameSchema.safeParse(data.support_telegram_username);
+      return parsed.success ? parsed.data : "";
+    },
+  });
+  const supportUrl = supportUsername ? `https://t.me/${encodeURIComponent(supportUsername)}` : "";
+  const { data: showAdmin } = useQuery({
+    queryKey: ["is-admin", myId],
+    queryFn: async () => {
+      const tgw = (window as Window & { Telegram?: { WebApp?: { initData?: string } } }).Telegram
+        ?.WebApp;
+      if (!tgw?.initData && !import.meta.env.DEV) return false;
+      await bindAdminId({ data: identity }).catch(() => null);
+      const result = await ensureTgAdmin({ data: identity }).catch(() => null);
+      return !!result?.isAdmin;
+    },
+  });
+
+  return (
+    <div className="mx-auto min-h-screen max-w-md bg-background pb-24">
+      <header className="header-grad flex flex-col items-center px-6 pb-14 pt-8 text-primary-foreground">
+        {user.photo ? (
+          <img
+            src={user.photo}
+            alt={user.name}
+            className="h-20 w-20 rounded-full border-2 border-gold object-cover shadow-md"
+          />
+        ) : (
+          <div className="flex h-20 w-20 items-center justify-center rounded-full border-2 border-gold bg-card text-3xl shadow-md">
+            👤
+          </div>
+        )}
+        <h1 className="mt-3 font-display text-xl font-semibold">{user.name}</h1>
+      </header>
+
+      <main className="-mt-8 px-6">
+        {/* Admin Panel */}
+        {showAdmin && (
+          <Link
+            to="/admin"
+            className="mb-4 flex items-center gap-3 rounded-2xl border bg-card p-4 shadow-card active:scale-[0.98]"
+          >
+            <div className="header-grad flex h-11 w-11 items-center justify-center rounded-full text-primary-foreground shadow-sm">
+              <ShieldCheck className="h-5 w-5" />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-bold text-primary-deep">Admin Panel</p>
+              <p className="text-[10px] text-muted-foreground">অ্যাপ পরিচালনা করুন</p>
+            </div>
+            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+          </Link>
+        )}
+
+        {/* Balance card */}
+        <div className="mb-4 flex items-center justify-between rounded-2xl border bg-card p-5 shadow-card">
+          <div>
+            <p className="mb-0.5 text-[10px] font-bold uppercase tracking-widest text-primary-deep/60">
+              মোট ইনকাম (ব্যালেন্স)
+            </p>
+            <p className="font-display text-3xl font-bold text-primary">৳ {balance}</p>
+          </div>
+          <Link
+            to="/withdraw"
+            className="header-grad flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-xs font-bold text-primary-foreground shadow-sm active:scale-95"
+          >
+            <Wallet className="h-4 w-4" />
+            Withdraw
+          </Link>
+        </div>
+
+        <a
+          href={supportUrl || undefined}
+          aria-disabled={!supportUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(event) => {
+            if (!supportUrl) {
+              event.preventDefault();
+              return;
+            }
+            const tg = (
+              window as Window & {
+                Telegram?: { WebApp?: { openTelegramLink?: (url: string) => void } };
+              }
+            ).Telegram?.WebApp;
+            if (tg?.openTelegramLink) {
+              event.preventDefault();
+              tg.openTelegramLink(supportUrl);
+            }
+          }}
+          className="mt-4 flex items-center gap-3 rounded-2xl border bg-card p-4 shadow-card"
+        >
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-tile text-primary">
+            <HelpCircle className="h-6 w-6" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-bold text-primary-deep">Help &amp; Support</p>
+            {supportUsername && (
+              <p className="mt-1 break-all text-xs text-muted-foreground">@{supportUsername}</p>
+            )}
+          </div>
+          <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" />
+        </a>
+
+        {/* Withdraw marquee banner */}
+        <WithdrawBanner />
+      </main>
+
+      <BottomNav active="profile" />
+    </div>
+  );
+}
