@@ -18,9 +18,11 @@ export function myRefCode() {
 }
 
 export function myRefLink() {
-  // ?start= opens the bot chat so the welcome message shows; the webhook records the referral
-  // server-side the moment /start arrives (works for existing users too, in force mode).
-  return `https://t.me/${BOT_USERNAME}?start=${encodeURIComponent(myRefCode())}`;
+  // ?startapp= launches the Mini App directly and ALWAYS passes start_param — including for accounts
+  // that already started the bot before (for those, a ?start= link sends no /start to the webhook, so
+  // the referral never records — confirmed via live data). startReferralTracking reads start_param
+  // on app open and records the referral client-side. Needs the bot's Main Mini App enabled in BotFather.
+  return `https://t.me/${BOT_USERNAME}?startapp=${encodeURIComponent(myRefCode())}`;
 }
 
 function incomingRefCode(): string | null {
