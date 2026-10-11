@@ -401,12 +401,14 @@ export const recordReferral = createServerFn({ method: "POST" })
 
     return db.transaction(async (tx) => {
       const [me] = await tx
-        .select({ balance: players.balance, blocked: players.blocked })
+        .select({ blocked: players.blocked })
         .from(players)
         .where(eq(players.tg_id, user.id))
         .for("update")
         .limit(1);
-      if (!me || me.blocked || me.balance > 0) return { ok: false };
+      // Earnings can race referral recording; balance is not proof of attribution.
+      // The unique referred_id below enforces one lifetime referral per user.
+      if (!me || me.blocked) return { ok: false };
 
       const [referrer] = await tx
         .select({ tg_id: players.tg_id, blocked: players.blocked })
@@ -436,7 +438,7 @@ export const recordReferral = createServerFn({ method: "POST" })
         })
         .onConflictDoNothing()
         .returning({ referred_id: referrals.referred_id });
-      if (!inserted) return { ok: false };
+      if (!inserted) return { ok: true };
 
       const balance = await creditWithin(
         tx as unknown as BalanceExecutor,

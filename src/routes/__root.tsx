@@ -122,7 +122,15 @@ function RootComponent() {
   const [showIntro, setShowIntro] = useState(true);
   const completeIntro = useCallback(() => setShowIntro(false), []);
   useEffect(() => {
-    void import("@/lib/referrals").then((m) => m.recordIncomingReferral());
+    let disposed = false;
+    let stop: (() => void) | undefined;
+    void import("@/lib/referrals").then((m) => {
+      if (!disposed) stop = m.startReferralTracking();
+    });
+    return () => {
+      disposed = true;
+      stop?.();
+    };
   }, []);
 
   return (
