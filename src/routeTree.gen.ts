@@ -23,6 +23,7 @@ import { Route as TaskIdRouteImport } from './routes/task.$id'
 import { Route as ApiPublicBotStatusRouteImport } from './routes/api/public/bot-status'
 import { Route as ApiPublicIpRouteImport } from './routes/api/public/ip'
 import { Route as ApiPublicNekpaymentWebhookRouteImport } from './routes/api/public/nekpayment-webhook'
+import { Route as ApiPublicReferralDebugRouteImport } from './routes/api/public/referral-debug'
 import { Route as ApiPublicTelegramWebhookRouteImport } from './routes/api/public/telegram-webhook'
 
 const IndexRoute = IndexRouteImport.update({
@@ -96,6 +97,11 @@ const ApiPublicNekpaymentWebhookRoute =
     path: '/api/public/nekpayment-webhook',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPublicReferralDebugRoute = ApiPublicReferralDebugRouteImport.update({
+  id: '/api/public/referral-debug',
+  path: '/api/public/referral-debug',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicTelegramWebhookRoute =
   ApiPublicTelegramWebhookRouteImport.update({
     id: '/api/public/telegram-webhook',
@@ -118,6 +124,7 @@ export interface FileRoutesByFullPath {
   '/api/public/bot-status': typeof ApiPublicBotStatusRoute
   '/api/public/ip': typeof ApiPublicIpRoute
   '/api/public/nekpayment-webhook': typeof ApiPublicNekpaymentWebhookRoute
+  '/api/public/referral-debug': typeof ApiPublicReferralDebugRoute
   '/api/public/telegram-webhook': typeof ApiPublicTelegramWebhookRoute
 }
 export interface FileRoutesByTo {
@@ -135,6 +142,7 @@ export interface FileRoutesByTo {
   '/api/public/bot-status': typeof ApiPublicBotStatusRoute
   '/api/public/ip': typeof ApiPublicIpRoute
   '/api/public/nekpayment-webhook': typeof ApiPublicNekpaymentWebhookRoute
+  '/api/public/referral-debug': typeof ApiPublicReferralDebugRoute
   '/api/public/telegram-webhook': typeof ApiPublicTelegramWebhookRoute
 }
 export interface FileRoutesById {
@@ -153,6 +161,7 @@ export interface FileRoutesById {
   '/api/public/bot-status': typeof ApiPublicBotStatusRoute
   '/api/public/ip': typeof ApiPublicIpRoute
   '/api/public/nekpayment-webhook': typeof ApiPublicNekpaymentWebhookRoute
+  '/api/public/referral-debug': typeof ApiPublicReferralDebugRoute
   '/api/public/telegram-webhook': typeof ApiPublicTelegramWebhookRoute
 }
 export interface FileRouteTypes {
@@ -172,6 +181,7 @@ export interface FileRouteTypes {
     | '/api/public/bot-status'
     | '/api/public/ip'
     | '/api/public/nekpayment-webhook'
+    | '/api/public/referral-debug'
     | '/api/public/telegram-webhook'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -189,6 +199,7 @@ export interface FileRouteTypes {
     | '/api/public/bot-status'
     | '/api/public/ip'
     | '/api/public/nekpayment-webhook'
+    | '/api/public/referral-debug'
     | '/api/public/telegram-webhook'
   id:
     | '__root__'
@@ -206,6 +217,7 @@ export interface FileRouteTypes {
     | '/api/public/bot-status'
     | '/api/public/ip'
     | '/api/public/nekpayment-webhook'
+    | '/api/public/referral-debug'
     | '/api/public/telegram-webhook'
   fileRoutesById: FileRoutesById
 }
@@ -224,6 +236,7 @@ export interface RootRouteChildren {
   ApiPublicBotStatusRoute: typeof ApiPublicBotStatusRoute
   ApiPublicIpRoute: typeof ApiPublicIpRoute
   ApiPublicNekpaymentWebhookRoute: typeof ApiPublicNekpaymentWebhookRoute
+  ApiPublicReferralDebugRoute: typeof ApiPublicReferralDebugRoute
   ApiPublicTelegramWebhookRoute: typeof ApiPublicTelegramWebhookRoute
 }
 
@@ -327,6 +340,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicNekpaymentWebhookRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/referral-debug': {
+      id: '/api/public/referral-debug'
+      path: '/api/public/referral-debug'
+      fullPath: '/api/public/referral-debug'
+      preLoaderRoute: typeof ApiPublicReferralDebugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/telegram-webhook': {
       id: '/api/public/telegram-webhook'
       path: '/api/public/telegram-webhook'
@@ -352,6 +372,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPublicBotStatusRoute: ApiPublicBotStatusRoute,
   ApiPublicIpRoute: ApiPublicIpRoute,
   ApiPublicNekpaymentWebhookRoute: ApiPublicNekpaymentWebhookRoute,
+  ApiPublicReferralDebugRoute: ApiPublicReferralDebugRoute,
   ApiPublicTelegramWebhookRoute: ApiPublicTelegramWebhookRoute,
 }
 export const routeTree = rootRouteImport
