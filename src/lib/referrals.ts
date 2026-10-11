@@ -18,7 +18,10 @@ export function myRefCode() {
 }
 
 export function myRefLink() {
-  return `https://t.me/${BOT_USERNAME}?start=${encodeURIComponent(myRefCode())}`;
+  // startapp opens the Mini App directly and always passes start_param — even for users who
+  // already started the bot before. (The old ?start= link only re-sent the code to brand-new
+  // users, so returning users were never counted.) Needs the bot's Main Mini App enabled in BotFather.
+  return `https://t.me/${BOT_USERNAME}?startapp=${encodeURIComponent(myRefCode())}`;
 }
 
 function incomingRefCode(): string | null {
@@ -26,67 +29,29 @@ function incomingRefCode(): string | null {
   const startParam = (
     window as Window & { Telegram?: { WebApp?: { initDataUnsafe?: { start_param?: string } } } }
   ).Telegram?.WebApp?.initDataUnsafe?.start_param;
-  const query = new URLSearchParams(window.location.search);
-  return startParam || query.get("tgWebAppStartParam") || query.get("ref") || null;
+  const queryCode = new URLSearchParams(window.location.search).get("ref");
+  return startParam || queryCode || null;
 }
 
-/** Retry until acknowledged; uniqueness and crediting are enforced by PostgreSQL. */
-export function startReferralTracking() {
-  let code = incomingRefCode();
-  let stopped = false;
-  let busy = false;
-  let complete = false;
+/** Record the incoming Telegram start parameter once; PostgreSQL enforces uniqueness too. */
+export async function recordIncomingReferral() {
+  const code = incomingRefCode();
+  if (!code) return;
+  const identity = getTgIdentity();
+  if (
+    code === identity.tgId ||
+    (identity.username && code.toLowerCase() === identity.username.toLowerCase())
+  )
+    return;
 
-  const attempt = async () => {
-    if (stopped || busy || complete) return;
-    code ||= incomingRefCode();
-    const identity = getTgIdentity();
-    // Never submit the preview identity while the Telegram SDK is still loading.
-    if (!identity.initData) return;
-    const key = `lg_ref_pending_${identity.tgId}`;
-    try {
-      code ||= sessionStorage.getItem(key);
-      if (code) sessionStorage.setItem(key, code);
-    } catch {
-      // Storage can be disabled in Telegram's webview; keep the code in memory.
-    }
-    if (!code) return;
-    if (
-      code === identity.tgId ||
-      (identity.username && code.toLowerCase() === identity.username.toLowerCase())
-    ) {
-      complete = true;
-      return;
-    }
-    busy = true;
-    try {
-      const result = await recordReferral({ data: { ...identity, code } });
-      if (result.ok) {
-        complete = true;
-        try {
-          sessionStorage.removeItem(key);
-        } catch {
-          // A repeated request is safe even if storage is unavailable.
-        }
-      }
-    } catch (error) {
-      console.error("Referral recording error:", error);
-    } finally {
-      busy = false;
-    }
-  };
-
-  void attempt();
-  const timer = window.setInterval(() => {
-    if (document.visibilityState === "visible") void attempt();
-  }, 8000);
-  const onFocus = () => void attempt();
-  window.addEventListener("focus", onFocus);
-  return () => {
-    stopped = true;
-    window.clearInterval(timer);
-    window.removeEventListener("focus", onFocus);
-  };
+  const key = `lg_ref_done_${identity.tgId}_${code}`;
+  if (localStorage.getItem(key)) return;
+  try {
+    const result = await recordReferral({ data: { ...identity, code } });
+    if (result.ok && typeof localStorage !== "undefined") localStorage.setItem(key, "1");
+  } catch (error) {
+    console.error("Referral recording error:", error);
+  }
 }
 
 export function useReferrals() {
