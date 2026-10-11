@@ -20,6 +20,7 @@ import { Route as SpinRouteImport } from './routes/spin'
 import { Route as TypingRouteImport } from './routes/typing'
 import { Route as WithdrawRouteImport } from './routes/withdraw'
 import { Route as TaskIdRouteImport } from './routes/task.$id'
+import { Route as ApiPublicBotStatusRouteImport } from './routes/api/public/bot-status'
 import { Route as ApiPublicIpRouteImport } from './routes/api/public/ip'
 import { Route as ApiPublicNekpaymentWebhookRouteImport } from './routes/api/public/nekpayment-webhook'
 import { Route as ApiPublicTelegramWebhookRouteImport } from './routes/api/public/telegram-webhook'
@@ -79,6 +80,11 @@ const TaskIdRoute = TaskIdRouteImport.update({
   path: '/task/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicBotStatusRoute = ApiPublicBotStatusRouteImport.update({
+  id: '/api/public/bot-status',
+  path: '/api/public/bot-status',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicIpRoute = ApiPublicIpRouteImport.update({
   id: '/api/public/ip',
   path: '/api/public/ip',
@@ -109,6 +115,7 @@ export interface FileRoutesByFullPath {
   '/typing': typeof TypingRoute
   '/withdraw': typeof WithdrawRoute
   '/task/$id': typeof TaskIdRoute
+  '/api/public/bot-status': typeof ApiPublicBotStatusRoute
   '/api/public/ip': typeof ApiPublicIpRoute
   '/api/public/nekpayment-webhook': typeof ApiPublicNekpaymentWebhookRoute
   '/api/public/telegram-webhook': typeof ApiPublicTelegramWebhookRoute
@@ -125,6 +132,7 @@ export interface FileRoutesByTo {
   '/typing': typeof TypingRoute
   '/withdraw': typeof WithdrawRoute
   '/task/$id': typeof TaskIdRoute
+  '/api/public/bot-status': typeof ApiPublicBotStatusRoute
   '/api/public/ip': typeof ApiPublicIpRoute
   '/api/public/nekpayment-webhook': typeof ApiPublicNekpaymentWebhookRoute
   '/api/public/telegram-webhook': typeof ApiPublicTelegramWebhookRoute
@@ -142,6 +150,7 @@ export interface FileRoutesById {
   '/typing': typeof TypingRoute
   '/withdraw': typeof WithdrawRoute
   '/task/$id': typeof TaskIdRoute
+  '/api/public/bot-status': typeof ApiPublicBotStatusRoute
   '/api/public/ip': typeof ApiPublicIpRoute
   '/api/public/nekpayment-webhook': typeof ApiPublicNekpaymentWebhookRoute
   '/api/public/telegram-webhook': typeof ApiPublicTelegramWebhookRoute
@@ -160,6 +169,7 @@ export interface FileRouteTypes {
     | '/typing'
     | '/withdraw'
     | '/task/$id'
+    | '/api/public/bot-status'
     | '/api/public/ip'
     | '/api/public/nekpayment-webhook'
     | '/api/public/telegram-webhook'
@@ -176,6 +186,7 @@ export interface FileRouteTypes {
     | '/typing'
     | '/withdraw'
     | '/task/$id'
+    | '/api/public/bot-status'
     | '/api/public/ip'
     | '/api/public/nekpayment-webhook'
     | '/api/public/telegram-webhook'
@@ -192,6 +203,7 @@ export interface FileRouteTypes {
     | '/typing'
     | '/withdraw'
     | '/task/$id'
+    | '/api/public/bot-status'
     | '/api/public/ip'
     | '/api/public/nekpayment-webhook'
     | '/api/public/telegram-webhook'
@@ -209,6 +221,7 @@ export interface RootRouteChildren {
   TypingRoute: typeof TypingRoute
   WithdrawRoute: typeof WithdrawRoute
   TaskIdRoute: typeof TaskIdRoute
+  ApiPublicBotStatusRoute: typeof ApiPublicBotStatusRoute
   ApiPublicIpRoute: typeof ApiPublicIpRoute
   ApiPublicNekpaymentWebhookRoute: typeof ApiPublicNekpaymentWebhookRoute
   ApiPublicTelegramWebhookRoute: typeof ApiPublicTelegramWebhookRoute
@@ -293,6 +306,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TaskIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/bot-status': {
+      id: '/api/public/bot-status'
+      path: '/api/public/bot-status'
+      fullPath: '/api/public/bot-status'
+      preLoaderRoute: typeof ApiPublicBotStatusRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/ip': {
       id: '/api/public/ip'
       path: '/api/public/ip'
@@ -329,6 +349,7 @@ const rootRouteChildren: RootRouteChildren = {
   TypingRoute: TypingRoute,
   WithdrawRoute: WithdrawRoute,
   TaskIdRoute: TaskIdRoute,
+  ApiPublicBotStatusRoute: ApiPublicBotStatusRoute,
   ApiPublicIpRoute: ApiPublicIpRoute,
   ApiPublicNekpaymentWebhookRoute: ApiPublicNekpaymentWebhookRoute,
   ApiPublicTelegramWebhookRoute: ApiPublicTelegramWebhookRoute,
