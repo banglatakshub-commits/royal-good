@@ -457,7 +457,9 @@ export const recordReferral = createServerFn({ method: "POST" })
         })
         .onConflictDoNothing()
         .returning({ referred_id: referrals.referred_id });
-      if (!inserted) return { ok: false };
+      // Already referred (duplicate /start or re-open): acknowledge success so the client stops
+      // retrying, but don't credit the bonus again.
+      if (!inserted) return { ok: true };
 
       const balance = await creditWithin(
         tx as unknown as BalanceExecutor,

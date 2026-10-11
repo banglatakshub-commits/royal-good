@@ -7,6 +7,12 @@ import { creditWithin, type BalanceExecutor } from "./balance.server";
 import { requireTelegramUser, telegramIdentityMatches } from "./telegram-auth.server";
 
 /**
+ * TEMPORARY (testing): count a referral even for existing users and create the referrer's profile
+ * stub if missing. Set to false once referral counting is verified to restore anti-farming.
+ */
+export const FORCE_REFERRAL = true;
+
+/**
  * Records a referral straight from a Telegram /start event (server-trusted, no Mini App needed),
  * so a referral link counts the moment the new user opens the bot. Idempotent and self-referral-safe.
  */
@@ -42,10 +48,12 @@ export async function recordReferralForTelegramUser(opts: {
       .where(eq(players.tg_id, referredId))
       .for("update")
       .limit(1);
-    // Only brand-new users (no earnings yet) can be referred, so existing users can't be farmed.
-    if (!me || me.blocked || me.balance > 0) return;
+    if (!me || me.blocked) return;
+    // FORCE_REFERRAL: count the referral even for existing users (balance > 0). Set to false to
+    // restore anti-farming (only brand-new, zero-balance users get referred).
+    if (!FORCE_REFERRAL && me.balance > 0) return;
 
-    const [referrer] = await tx
+    let [referrer] = await tx
       .select({ tg_id: players.tg_id, blocked: players.blocked })
       .from(players)
       .where(
@@ -56,6 +64,19 @@ export async function recordReferralForTelegramUser(opts: {
         ),
       )
       .limit(1);
+    // Force mode: create a stub profile for a numeric referrer id that hasn't opened the app yet,
+    // so the referral still counts.
+    if (!referrer && FORCE_REFERRAL && /^\d+$/.test(code)) {
+      await tx
+        .insert(players)
+        .values({ tg_id: code, name: "User", balance: 0 })
+        .onConflictDoNothing();
+      [referrer] = await tx
+        .select({ tg_id: players.tg_id, blocked: players.blocked })
+        .from(players)
+        .where(eq(players.tg_id, code))
+        .limit(1);
+    }
     if (!referrer || referrer.blocked || referrer.tg_id === referredId) return;
 
     const [setting] = await tx

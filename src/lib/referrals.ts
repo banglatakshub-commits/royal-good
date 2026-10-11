@@ -18,10 +18,9 @@ export function myRefCode() {
 }
 
 export function myRefLink() {
-  // startapp opens the Mini App directly and always passes start_param — even for users who
-  // already started the bot before. (The old ?start= link only re-sent the code to brand-new
-  // users, so returning users were never counted.) Needs the bot's Main Mini App enabled in BotFather.
-  return `https://t.me/${BOT_USERNAME}?startapp=${encodeURIComponent(myRefCode())}`;
+  // ?start= opens the bot chat so the welcome message shows; the webhook records the referral
+  // server-side the moment /start arrives (works for existing users too, in force mode).
+  return `https://t.me/${BOT_USERNAME}?start=${encodeURIComponent(myRefCode())}`;
 }
 
 function incomingRefCode(): string | null {
@@ -29,37 +28,98 @@ function incomingRefCode(): string | null {
   const startParam = (
     window as Window & { Telegram?: { WebApp?: { initDataUnsafe?: { start_param?: string } } } }
   ).Telegram?.WebApp?.initDataUnsafe?.start_param;
-  const queryCode = new URLSearchParams(window.location.search).get("ref");
+  const params = new URLSearchParams(window.location.search);
+  const queryCode = params.get("ref") || params.get("tgWebAppStartParam");
   return startParam || queryCode || null;
 }
 
+const RETRY_MS = 2000;
+
+function readPending(tgId: string): string | null {
+  try {
+    return sessionStorage.getItem(`lg_ref_pending_${tgId}`);
+  } catch {
+    return null;
+  }
+}
+function writePending(tgId: string, code: string) {
+  try {
+    sessionStorage.setItem(`lg_ref_pending_${tgId}`, code);
+  } catch {
+    /* webview storage may be unavailable */
+  }
+}
+function clearPending(tgId: string) {
+  try {
+    sessionStorage.removeItem(`lg_ref_pending_${tgId}`);
+  } catch {
+    /* ignore */
+  }
+}
+
 /**
- * Record the incoming Telegram referral code. Retries briefly because Telegram's initData /
- * start_param may not be ready the instant the app mounts. PostgreSQL's unique constraint on
- * referred_id stops any double credit, so no local dedup flag is kept — which also means
- * delete-and-retry testing works.
+ * Starts recording the incoming Telegram referral code. Captures the code as soon as it appears
+ * (the URL may change afterwards), waits for Telegram auth (initData) to be ready, then records it —
+ * retrying transient failures. The code is retained in sessionStorage so it survives navigation.
+ * PostgreSQL's unique constraint on referred_id prevents any double credit. Returns a stop function.
  */
-export async function recordIncomingReferral() {
-  for (let attempt = 0; attempt < 12; attempt++) {
+export function startReferralTracking(): () => void {
+  let stopped = false;
+  let done = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let code: string | null = null;
+
+  const schedule = () => {
+    if (!stopped && !done) timer = setTimeout(tick, RETRY_MS);
+  };
+
+  function tick() {
+    if (stopped || done) return;
     const identity = getTgIdentity();
-    const code = incomingRefCode();
-    if (identity.tgId && code) {
-      if (
-        code === identity.tgId ||
-        (identity.username && code.toLowerCase() === identity.username.toLowerCase())
-      )
-        return;
-      try {
-        await recordReferral({ data: { ...identity, code } });
-      } catch (error) {
-        console.error("Referral recording error:", error);
-      }
+
+    // Capture the referral code the first time we see it (from URL or a saved pending value).
+    if (!code) {
+      code = incomingRefCode();
+      if (!code && identity.tgId) code = readPending(identity.tgId);
+    }
+    if (code && identity.tgId) writePending(identity.tgId, code);
+
+    // Wait until both a referral code and Telegram auth (initData) are available.
+    if (!code || !identity.tgId || !identity.initData) {
+      schedule();
       return;
     }
-    // No referral code present at all — give the WebApp a moment, then stop.
-    if (!code && attempt > 2) return;
-    await new Promise((resolve) => setTimeout(resolve, 400));
+
+    // Never record a self-referral.
+    if (
+      code === identity.tgId ||
+      (identity.username && code.toLowerCase() === identity.username.toLowerCase())
+    ) {
+      done = true;
+      clearPending(identity.tgId);
+      return;
+    }
+
+    recordReferral({ data: { ...identity, code } })
+      .then((result) => {
+        if (result?.ok) {
+          done = true;
+          clearPending(identity.tgId);
+        } else {
+          schedule();
+        }
+      })
+      .catch((error) => {
+        console.error("Referral recording error:", error);
+        schedule();
+      });
   }
+
+  tick();
+  return () => {
+    stopped = true;
+    if (timer) clearTimeout(timer);
+  };
 }
 
 export function useReferrals() {
