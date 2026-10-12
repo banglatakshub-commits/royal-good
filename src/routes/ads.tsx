@@ -1,11 +1,9 @@
-﻿import { HowItWorks } from "@/components/HowItWorks";
-import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
-import { PageShell, JobIntro } from "@/components/AppShell";
-import { RewardDone } from "@/components/RewardDone";
+﻿import { createFileRoute } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
+import { PageShell } from "@/components/AppShell";
 import { loadSettings, settings } from "@/lib/settings";
 import { useServerFn } from "@tanstack/react-start";
-import { getAdStatus, recordAdView } from "@/lib/ads.functions";
+import { claimAdReward } from "@/lib/ads.functions";
 import { getTgUser } from "@/lib/telegram";
 import { setServerBalance } from "@/lib/wallet";
 
@@ -23,7 +21,6 @@ export const Route = createFileRoute("/ads")({
   component: AdsPage,
 });
 
-const WATCH_SECONDS = 15;
 // GigaPub ad network script — loads window.showGiga
 function useGigaPubScript() {
   useEffect(() => {
@@ -47,84 +44,20 @@ function useGigaPubScript() {
 }
 
 function AdsPage() {
-  const [stage, setStage] = useState<"intro" | "watch" | "done">("intro");
-  const [cfg, setCfg] = useState({ limit: settings.daily_ads, reward: settings.ad_reward });
-  const [watched, setWatched] = useState(0);
-  const [resetAt, setResetAt] = useState<string | null>(null);
-  const statusFn = useServerFn(getAdStatus);
-  const recordFn = useServerFn(recordAdView);
-  const tgUser = () => getTgUser();
-  
-  useEffect(() => {
-    loadSettings().then((st) => setCfg((c) => ({ ...c, reward: st.ad_reward })));
-    statusFn({ data: tgUser() })
-      .then((r) => { 
-        setWatched(r.watched); 
-        setCfg((c) => ({ ...c, limit: r.limit })); 
-        setResetAt(r.resetAt); 
-      })
-      .catch(() => {});
-  }, [statusFn]);
-  
-  const [notice, setNotice] = useState<{ icon: string; title: string; desc: string } | null>(null);
-  
-  const finish = async () => {
-    try {
-      const r = await recordFn({ data: tgUser() });
-      setWatched(r.watched); 
-      setResetAt(r.resetAt); 
-      setCfg((c) => ({ ...c, limit: r.limit }));
-      if (r.ok) {
-        setServerBalance(r.balance);
-        setStage("done");
-      } else {
-        setStage("intro");
-        setNotice({
-          icon: "⏳",
-          title: "আজকের এড লিমিট শেষ",
-          desc: "দুপুর ১২টার পর আবার চেষ্টা করুন।",
-        });
-      }
-    } catch (error) {
-      console.error("Ad reward error:", error);
-      setStage("intro");
-    }
-  };
-  const remaining = Math.max(0, cfg.limit - watched);
-  const [total, setTotal] = useState(settings.ad_seconds ?? WATCH_SECONDS);
-  const [left, setLeft] = useState(total);
-  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
-  const adDone = useRef(false);
-  const timeDone = useRef(false);
-  const finished = useRef(false);
+  const [stage, setStage] = useState<"ready" | "watching" | "success">("ready");
+  const [reward, setReward] = useState(5);
+  const claimFn = useServerFn(claimAdReward);
+  const tgUser = getTgUser();
   
   useGigaPubScript();
   
   useEffect(() => { 
-    loadSettings().then((st) => setTotal(st.ad_seconds ?? WATCH_SECONDS)); 
+    loadSettings().then((st) => setReward(st.ad_reward)); 
   }, []);
 
-  const tryFinish = () => {
-    if (finished.current || !adDone.current || !timeDone.current) return;
-    finished.current = true;
-    console.log("🎉 Both conditions met - giving reward!");
-    finish();
-  };
-  
-  const cancel = (n: { icon: string; title: string; desc: string }) => {
-    if (finished.current) return;
-    finished.current = true;
-    if (timer.current) clearInterval(timer.current);
-    setStage("intro");
-    setNotice(n);
-  };
-  const start = () => {
-    console.log("🚀 Starting ad watch... v2");
-    adDone.current = false; 
-    timeDone.current = total <= 0; 
-    finished.current = false;
-    setLeft(total);
-    setStage("watch");
+  const watchAd = () => {
+    console.log("🚀 Starting ad...");
+    setStage("watching");
     
     const giga = (window as any).showGiga as undefined | (() => Promise<void>);
     if (typeof giga === "function") {
@@ -132,121 +65,94 @@ function AdsPage() {
       giga()
         .then(() => {
           console.log("✅ GigaPub ad completed!");
-          adDone.current = true;
-          if (!timeDone.current) {
-            console.log("⏰ Timer not done yet, waiting...");
-          }
-          tryFinish();
+          giveReward();
         })
         .catch((err) => {
           console.warn("❌ GigaPub ad failed:", err);
-          cancel({ 
-            icon: "📭", 
-            title: "এড পাওয়া যায়নি", 
-            desc: "এখন কোনো বিজ্ঞাপন নেই, একটু পরে আবার চেষ্টা করুন।" 
-          });
+          setStage("ready");
         });
     } else {
-      console.log("🔧 GigaPub not available, marking as done for testing");
-      adDone.current = true;
-      tryFinish();
-    }
-    
-    // Start timer
-    if (total > 0) {
-      console.log(`⏱️ Starting ${total}s timer...`);
-      timer.current = setInterval(() => {
-        setLeft((s) => {
-          if (s <= 1) {
-            console.log("⏰ Timer completed!");
-            if (timer.current) clearInterval(timer.current);
-            timeDone.current = true;
-            tryFinish();
-            return 0;
-          }
-          return s - 1;
-        });
-      }, 1000);
-    } else {
-      console.log("⏰ No minimum time, timer already done");
-      timeDone.current = true;
-      tryFinish();
+      console.log("🔧 GigaPub not available, giving reward for testing");
+      giveReward();
     }
   };
+
+  const giveReward = async () => {
+    try {
+      const result = await claimFn({ 
+        data: {
+          tgId: tgUser.id || tgUser.username,
+          name: tgUser.name,
+          username: tgUser.username,
+          photoUrl: tgUser.photo
+        }
+      });
+      
+      if (result.success) {
+        setServerBalance(result.balance);
+        setStage("success");
+        console.log("💰 Reward given successfully!");
+      } else {
+        console.log("❌ Reward failed");
+        setStage("ready");
+      }
+    } catch (error) {
+      console.error("Reward error:", error);
+      setStage("ready");
+    }
+  };
+
   return (
     <PageShell title="Ads Video">
-      {stage === "intro" && (
-        <p className="mb-3 rounded-xl bg-card p-3 text-center text-sm shadow-card">
-          আজ দেখেছেন <b>{watched}</b> / {cfg.limit} টি এড · বাকি <b>{remaining}</b>
-        </p>
-      )}
-      
-      {stage === "intro" && remaining <= 0 && (
-        <div className="rounded-2xl bg-card p-6 text-center shadow-card">
-          <p className="text-4xl">⏳</p>
-          <h2 className="mt-2 font-display text-xl">আজকের এড লিমিট শেষ</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {resetAt 
-              ? `আবার এড দেখতে পারবেন: ${new Date(resetAt).toLocaleString("bn-BD", { hour: "numeric", minute: "2-digit", day: "numeric", month: "short" })}` 
-              : "দুপুর ১২টার পর আবার এড দেখতে পারবেন।"
-            }
-          </p>
+      {stage === "ready" && (
+        <div className="space-y-6">
+          <div className="rounded-2xl bg-card p-6 text-center shadow-card">
+            <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-2xl header-grad text-4xl mb-4">
+              📺
+            </div>
+            <h2 className="font-display text-2xl mb-2">ভিডিও দেখে আয় করুন</h2>
+            <p className="text-muted-foreground mb-6">
+              বিজ্ঞাপন দেখা শেষে ৳{reward} পাবেন
+            </p>
+            <button
+              onClick={watchAd}
+              className="w-full rounded-xl header-grad py-4 text-lg font-semibold text-primary-foreground shadow-card"
+            >
+              ভিডিও দেখুন
+            </button>
+          </div>
         </div>
       )}
       
-      {stage === "intro" && remaining > 0 && (
-        <JobIntro
-          title="Ads Video"
-          desc={`${total} সেকেন্ড পুরো এড দেখলেই ৳${cfg.reward} পাবেন।`}
-          cta="ভিডিও শুরু করুন"
-          onStart={start}
-        />
-      )}
-      
-      {stage === "intro" && <HowItWorks kind="ads" />}
-      {stage === "watch" && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-foreground/50 p-6">
-          <div className="w-full max-w-sm rounded-3xl bg-card p-6 text-center shadow-card">
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl header-grad text-3xl">
-              ⏱️
+      {stage === "watching" && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-foreground/80 p-6">
+          <div className="w-full max-w-sm rounded-3xl bg-card p-8 text-center shadow-card">
+            <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-2xl header-grad text-4xl mb-4 animate-pulse">
+              📺
             </div>
-            <h2 className="mt-4 font-display text-xl">এড দেখছেন…</h2>
-            <p className="mt-3 text-sm text-muted-foreground">
-              Reward পেতে আরো <b className="text-2xl text-foreground">{left}s</b>
-            </p>
-            <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-tile">
-              <div
-                className="h-full bg-primary transition-all duration-1000"
-                style={{ width: `${total > 0 ? ((total - left) / total) * 100 : 100}%` }}
-              />
-            </div>
-            <p className="mt-3 text-xs text-muted-foreground">
-              এখন বন্ধ করবেন না — আগে বন্ধ করলে reward পাবেন না।
+            <h2 className="font-display text-xl mb-2">বিজ্ঞাপন দেখছেন...</h2>
+            <p className="text-sm text-muted-foreground">
+              বিজ্ঞাপন শেষ হলে অটোমেটিক রিওয়ার্ড পাবেন
             </p>
           </div>
         </div>
       )}
 
-      {stage === "done" && (
-        <RewardDone 
-          text="ভিডিও দেখা সম্পন্ন!" 
-          score={`+৳${cfg.reward}`} 
-          amount={cfg.reward} 
-        />
-      )}
-      {notice && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-foreground/50 p-6">
-          <div className="w-full max-w-sm rounded-3xl bg-card p-6 text-center shadow-card">
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-tile text-3xl">
-              {notice.icon}
+      {stage === "success" && (
+        <div className="space-y-6">
+          <div className="rounded-2xl bg-card p-6 text-center shadow-card">
+            <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-2xl bg-green-500 text-4xl mb-4">
+              ✅
             </div>
-            <h2 className="mt-4 font-display text-xl">{notice.title}</h2>
-            <p className="mt-2 text-sm text-muted-foreground">{notice.desc}</p>
+            <h2 className="font-display text-2xl mb-2">সফল!</h2>
+            <p className="text-lg font-semibold text-green-600 mb-4">
+              +৳{reward} আপনার একাউন্টে যোগ হয়েছে
+            </p>
             <button
-              onClick={() => setNotice(null)}
-              className="mt-5 w-full rounded-xl header-grad py-3 font-semibold text-primary-foreground shadow-card"
+              onClick={() => setStage("ready")}
+              className="w-full rounded-xl header-grad py-4 text-lg font-semibold text-primary-foreground shadow-card"
             >
-              ঠিক আছে
+              আরও ভিডিও দেখুন
             </button>
           </div>
         </div>

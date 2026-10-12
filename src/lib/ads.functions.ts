@@ -1,110 +1,46 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { eq, gte, count, and } from "drizzle-orm";
 import { getDb } from "./database";
-import { players, ad_views, app_settings } from "../../drizzle/schema";
-import { requireTelegramUser, telegramIdentityMatches } from "./telegram-auth.server";
-import { getDhakaNoonWindow } from "./dhaka-window";
+import { players, app_settings } from "../../drizzle/schema";
+import { eq } from "drizzle-orm";
 import { credit } from "./balance.server";
 
 const adClaimInput = z.object({
-  initData: z.string().max(8192).optional(),
   tgId: z.string().trim().min(1).max(64),
-  username: z.string().optional(),
   name: z.string().optional(),
+  username: z.string().optional(),
   photoUrl: z.string().optional(),
-  chatId: z.number().optional(),
 });
 
-function authenticatedUser(data: z.infer<typeof adClaimInput>) {
-  const user = requireTelegramUser(data.initData, {
-    tgId: data.tgId,
-    name: data.name,
-    username: data.username,
-    photoUrl: data.photoUrl,
-  });
-  if (!telegramIdentityMatches(user, data.tgId))
-    throw new Error("Telegram identity does not match the request.");
-  return user;
-}
-
-export const getAdStatus = createServerFn({ method: "POST" })
+export const claimAdReward = createServerFn({ method: "POST" })
   .validator((data) => adClaimInput.parse(data))
   .handler(async ({ data }) => {
-    const user = authenticatedUser(data);
     const db = getDb();
-    const { since, resetAt } = getDhakaNoonWindow();
-
-    const [result, config] = await Promise.all([
-      db
-        .select({ watched: count(ad_views.id) })
-        .from(ad_views)
-        .where(and(eq(ad_views.tg_id, user.id), gte(ad_views.created_at, since))),
-      db.select().from(app_settings).where(eq(app_settings.id, 1)).limit(1),
-    ]);
-
-    const watched = result[0]?.watched ?? 0;
-    const limit = config[0]?.daily_ads ?? 10;
-
-    return { watched, limit, resetAt: resetAt.toISOString() };
-  });
-
-export const recordAdView = createServerFn({ method: "POST" })
-  .validator((data) => adClaimInput.parse(data))
-  .handler(async ({ data }) => {
-    const user = authenticatedUser(data);
-    const db = getDb();
-    const { since, resetAt } = getDhakaNoonWindow();
-
-    // Get current status
-    const [result, config] = await Promise.all([
-      db
-        .select({ watched: count(ad_views.id) })
-        .from(ad_views)
-        .where(and(eq(ad_views.tg_id, user.id), gte(ad_views.created_at, since))),
-      db.select().from(app_settings).where(eq(app_settings.id, 1)).limit(1),
-    ]);
-
-    const watched = result[0]?.watched ?? 0;
-    const limit = config[0]?.daily_ads ?? 10;
-    const reward = config[0]?.ad_reward ?? 5;
-
-    // Check daily limit
-    if (watched >= limit) {
-      return { 
-        ok: false, 
-        watched, 
-        limit, 
-        resetAt: resetAt.toISOString() 
-      };
-    }
+    
+    // Get reward amount from settings
+    const [settingRow] = await db.select().from(app_settings).where(eq(app_settings.id, 1)).limit(1);
+    const reward = settingRow?.ad_reward ?? 5;
 
     // Create player profile if not exists
     await db
       .insert(players)
       .values({
-        tg_id: user.id,
-        name: user.name,
-        username: user.username,
-        photo_url: user.photoUrl,
-        chat_id: user.chatId,
+        tg_id: data.tgId,
+        name: data.name || "User",
+        username: data.username,
+        photo_url: data.photoUrl,
         balance: 0,
       })
       .onConflictDoNothing({ target: players.tg_id });
 
-    // Record the ad view
-    await db.insert(ad_views).values({ tg_id: user.id });
+    // Give reward
+    const balance = await credit(data.tgId, reward);
     
-    // Credit the reward
-    const balance = await credit(user.id, reward);
-    
-    console.log(`💰 Rewarded user ${user.id} with ${reward}. New balance: ${balance}`);
+    console.log(`💰 Ad reward given to ${data.tgId}: +${reward}. New balance: ${balance}`);
     
     return { 
-      ok: true, 
+      success: true, 
       balance, 
-      watched: watched + 1, 
-      limit, 
-      resetAt: resetAt.toISOString() 
+      reward 
     };
   });
