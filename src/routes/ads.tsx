@@ -6,7 +6,7 @@ import { RewardDone } from "@/components/RewardDone";
 import { loadSettings, settings } from "@/lib/settings";
 import { useServerFn } from "@tanstack/react-start";
 import { getAdStatus, recordAdView } from "@/lib/ads.functions";
-import { getTelegramUser, readTelegramInitData } from "@/lib/telegram";
+import { getTgUser } from "@/lib/telegram";
 import { setServerBalance } from "@/lib/wallet";
 
 export const Route = createFileRoute("/ads")({
@@ -53,7 +53,7 @@ function AdsPage() {
   const [resetAt, setResetAt] = useState<string | null>(null);
   const statusFn = useServerFn(getAdStatus);
   const recordFn = useServerFn(recordAdView);
-  const tgUser = () => getTelegramUser();
+  const tgUser = () => getTgUser();
   
   useEffect(() => {
     loadSettings().then((st) => setCfg((c) => ({ ...c, reward: st.ad_reward })));

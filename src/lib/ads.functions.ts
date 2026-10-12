@@ -3,17 +3,30 @@ import { z } from "zod";
 import { eq, gte, count, and } from "drizzle-orm";
 import { getDb } from "./database";
 import { players, ad_views, app_settings } from "../../drizzle/schema";
-import { authenticatedUser } from "./telegram-auth.server";
+import { requireTelegramUser, telegramIdentityMatches } from "./telegram-auth.server";
 import { getDhakaNoonWindow } from "./dhaka-window";
 import { credit } from "./balance.server";
 
 const adClaimInput = z.object({
+  initData: z.string().max(8192).optional(),
   tgId: z.string().trim().min(1).max(64),
   username: z.string().optional(),
   name: z.string().optional(),
   photoUrl: z.string().optional(),
   chatId: z.number().optional(),
 });
+
+function authenticatedUser(data: z.infer<typeof adClaimInput>) {
+  const user = requireTelegramUser(data.initData, {
+    tgId: data.tgId,
+    name: data.name,
+    username: data.username,
+    photoUrl: data.photoUrl,
+  });
+  if (!telegramIdentityMatches(user, data.tgId))
+    throw new Error("Telegram identity does not match the request.");
+  return user;
+}
 
 export const getAdStatus = createServerFn({ method: "POST" })
   .validator((data) => adClaimInput.parse(data))
