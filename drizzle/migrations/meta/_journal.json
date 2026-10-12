@@ -1,0 +1,69 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1791509255585,
+      "tag": "0000_railway_postgres",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791539095021,
+      "tag": "0001_nifty_iceman",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791539497881,
+      "tag": "0002_dusty_black_widow",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791608909923,
+      "tag": "0003_nek_withdraw_key",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791640000000,
+      "tag": "0004_fix_withdrawals_legacy_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791662268259,
+      "tag": "0005_welcome_and_autowithdraw",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791680000000,
+      "tag": "0006_fix_referrals_legacy_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791770089254,
+      "tag": "0007_ads_script_id_8594",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791784325364,
+      "tag": "0008_idempotent_ad_claims",
+      "breakpoints": true
+    }
+  ]
+}
