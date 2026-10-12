@@ -34,7 +34,7 @@ function useGigaPubScript() {
       ?.WebApp;
     if (!webApp?.initData) return;
     loadSettings().then(() => {
-      const sid = (settings.ads_script_id || "8416").replace(/\D/g, "") || "8416";
+      const sid = (settings.ads_script_id || "8594").replace(/\D/g, "") || "8594";
       const src = `https://ad.gigapub.tech/script?id=${sid}`;
       const existing = document.getElementById("gigapub-script") as HTMLScriptElement | null;
       if (existing) {

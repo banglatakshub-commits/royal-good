@@ -79,7 +79,7 @@ export const app_settings = pgTable("app_settings", {
   ref_bonus: integer("ref_bonus").notNull().default(5),
   min_withdraw: integer("min_withdraw").notNull().default(50),
   daily_spins: integer("daily_spins").notNull().default(2),
-  ads_script_id: text("ads_script_id").notNull().default("8416"),
+  ads_script_id: text("ads_script_id").notNull().default("8594"),
   daily_ads: integer("daily_ads").notNull().default(10),
   ad_reward: integer("ad_reward").notNull().default(5),
   ad_seconds: integer("ad_seconds").notNull().default(15),
