@@ -28,6 +28,15 @@ describe("rewarded ad completion", () => {
     expect(claimAdReward(attempt, 11_001)).toBe(true);
   });
 
+  it("creates a stable UUID claim ID that can safely be reused for a retry", () => {
+    const attempt = createAdWatchAttempt(10, 1_000);
+
+    expect(attempt.claimId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
+    expect(createAdWatchAttempt(10, 1_000).claimId).not.toBe(attempt.claimId);
+  });
+
   it("does not award before the required watch duration", () => {
     const attempt = createAdWatchAttempt(10, 1_000);
     markAdWatched(attempt);

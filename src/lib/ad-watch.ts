@@ -1,13 +1,32 @@
 /** The client-side state for one rewarded-ad watch attempt. */
 export type AdWatchAttempt = {
+  claimId: string;
   deadline: number;
   adWatched: boolean;
   rewardClaimed: boolean;
 };
 
+function createClaimId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  // Older Telegram WebViews may not expose randomUUID; the UUID is an idempotency key,
+  // not an authentication token, so retain a format-compatible fallback for those clients.
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (character) => {
+    const random = Math.floor(Math.random() * 16);
+    return (character === "x" ? random : (random & 0x3) | 0x8).toString(16);
+  });
+}
+
 /** Use an absolute deadline so timer throttling while an ad is open cannot lose elapsed time. */
-export function createAdWatchAttempt(seconds: number, startedAt = Date.now()): AdWatchAttempt {
+export function createAdWatchAttempt(
+  seconds: number,
+  startedAt = Date.now(),
+  claimId = createClaimId(),
+): AdWatchAttempt {
   return {
+    claimId,
     deadline: startedAt + Math.max(0, seconds) * 1000,
     adWatched: false,
     rewardClaimed: false,

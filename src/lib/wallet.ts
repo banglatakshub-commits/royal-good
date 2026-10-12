@@ -7,16 +7,30 @@ import { getTgIdentity } from "@/lib/telegram";
 let restored = false;
 let poller: ReturnType<typeof setInterval> | null = null;
 const KEY = "lg_balance";
+let inMemoryBalance = 0;
 
 export function getBalance() {
-  if (typeof window === "undefined") return 0;
-  return Number(localStorage.getItem(KEY) ?? 0);
+  if (typeof window === "undefined") return inMemoryBalance;
+  try {
+    const stored = localStorage.getItem(KEY);
+    if (stored !== null) {
+      inMemoryBalance = Number(stored);
+    }
+  } catch {
+    // Embedded/private browser storage can be unavailable; keep the latest server value in memory.
+  }
+  return inMemoryBalance;
 }
 
 /** Update the cached balance with a value returned by the server. */
 export function setServerBalance(next: number | null | undefined) {
   if (typeof window === "undefined" || typeof next !== "number" || !Number.isFinite(next)) return;
-  localStorage.setItem(KEY, String(next));
+  inMemoryBalance = next;
+  try {
+    localStorage.setItem(KEY, String(next));
+  } catch {
+    // A storage exception must not turn a successfully credited reward into a failed UI state.
+  }
   window.dispatchEvent(new Event("lg-balance"));
 }
 

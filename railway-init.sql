@@ -251,10 +251,13 @@ CREATE INDEX IF NOT EXISTS custom_tasks_active_created_idx ON public.custom_task
 CREATE TABLE IF NOT EXISTS public.ad_views (
   id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   tg_id TEXT NOT NULL,
+  claim_id TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 --> statement-breakpoint
 ALTER TABLE public.ad_views ADD COLUMN IF NOT EXISTS tg_id TEXT;
+--> statement-breakpoint
+ALTER TABLE public.ad_views ADD COLUMN IF NOT EXISTS claim_id TEXT;
 --> statement-breakpoint
 ALTER TABLE public.ad_views ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now();
 --> statement-breakpoint
@@ -276,6 +279,9 @@ ALTER TABLE public.ad_views ALTER COLUMN id TYPE TEXT USING id::text;
 ALTER TABLE public.ad_views ALTER COLUMN id SET DEFAULT gen_random_uuid()::text;
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS ad_views_tg_created_idx ON public.ad_views (tg_id, created_at);
+--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS ad_views_tg_claim_id_unique_idx
+  ON public.ad_views (tg_id, claim_id);
 --> statement-breakpoint
 
 CREATE TABLE IF NOT EXISTS public.job_views (

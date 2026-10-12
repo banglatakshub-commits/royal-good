@@ -7,6 +7,7 @@ import {
   primaryKey,
   text,
   timestamp,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 /**
@@ -101,9 +102,13 @@ export const ad_views = pgTable(
       .primaryKey()
       .$defaultFn(() => crypto.randomUUID()),
     tg_id: text("tg_id").notNull(),
+    claim_id: text("claim_id"),
     created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [index("ad_views_tg_created_idx").on(table.tg_id, table.created_at)],
+  (table) => [
+    index("ad_views_tg_created_idx").on(table.tg_id, table.created_at),
+    uniqueIndex("ad_views_tg_claim_id_unique_idx").on(table.tg_id, table.claim_id),
+  ],
 );
 
 export const job_views = pgTable(

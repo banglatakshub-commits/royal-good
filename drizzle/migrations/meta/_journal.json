@@ -57,6 +57,13 @@
       "when": 1791770089254,
       "tag": "0007_ads_script_id_8594",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791784325364,
+      "tag": "0008_idempotent_ad_claims",
+      "breakpoints": true
     }
   ]
 }
