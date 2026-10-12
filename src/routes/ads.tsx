@@ -115,7 +115,8 @@ function getAdClaimErrorNotice(error: unknown) {
   }
   if (
     message.includes("telegram authentication") ||
-    message.includes("open this app inside telegram")
+    message.includes("open this app inside telegram") ||
+    message.includes("identity does not match")
   ) {
     return {
       icon: "📱",
@@ -134,6 +135,40 @@ function getAdClaimErrorNotice(error: unknown) {
     icon: "⚠️",
     title: "রিওয়ার্ড নিশ্চিত হয়নি",
     desc: "সার্ভারের সঙ্গে যোগাযোগে সমস্যা হয়েছে। বিজ্ঞাপনটি আবার না দেখে ‘আবার যাচাই করুন’ চাপুন—একই বিজ্ঞাপনের রিওয়ার্ড দ্বিগুণ হবে না।",
+  };
+}
+
+function getAdPreflightErrorNotice(error: unknown) {
+  const message = error instanceof Error ? error.message.toLowerCase() : "";
+  if (message.includes("expired")) {
+    return {
+      icon: "🔄",
+      title: "Telegram সেশন মেয়াদ শেষ",
+      desc: "Telegram থেকে অ্যাপটি বন্ধ করে আবার খুলুন। সেশন যাচাই না হওয়ায় বিজ্ঞাপন শুরু করা হয়নি।",
+    };
+  }
+  if (
+    message.includes("telegram authentication") ||
+    message.includes("open this app inside telegram") ||
+    message.includes("identity does not match")
+  ) {
+    return {
+      icon: "📱",
+      title: "Telegram সেশন যাচাই হয়নি",
+      desc: "অ্যাপটি Telegram-এর ভিতর থেকে আবার খুলুন। সেশন যাচাই না হওয়ায় বিজ্ঞাপন শুরু করা হয়নি।",
+    };
+  }
+  if (message.includes("account is blocked")) {
+    return {
+      icon: "⚠️",
+      title: "অ্যাকাউন্ট সীমাবদ্ধ",
+      desc: "আপনার অ্যাকাউন্টে বিজ্ঞাপন দেখানো যাবে না। সহায়তার জন্য অ্যাডমিনের সঙ্গে যোগাযোগ করুন।",
+    };
+  }
+  return {
+    icon: "⚠️",
+    title: "এড শুরু করা যায়নি",
+    desc: "রিওয়ার্ড সার্ভার যাচাই করা যায়নি, তাই বিজ্ঞাপন শুরু করিনি। ইন্টারনেট দেখে একটু পরে আবার চেষ্টা করুন।",
   };
 }
 
@@ -165,6 +200,7 @@ function AdsPage() {
   const [notice, setNotice] = useState<{ icon: string; title: string; desc: string } | null>(null);
   const [pendingClaimId, setPendingClaimId] = useState<string | null>(null);
   const [verifyingClaim, setVerifyingClaim] = useState(false);
+  const [checkingSession, setCheckingSession] = useState(false);
   const persistPendingClaim = useCallback(
     (claimId: string | null) => {
       setPendingClaimId(claimId);
@@ -270,17 +306,48 @@ function AdsPage() {
       void finish(pendingClaimId);
       return;
     }
-    // Outside Telegram the server rejects the reward at the end, so don't run the timer at all.
-    if (!readTelegramInitData()) {
+    const requestIdentity = identity();
+    // Never start a paid impression with a missing or fallback client identity. The server
+    // verifies the signed initData and requires its user ID to match this Telegram user ID.
+    if (!readTelegramInitData() || !/^\d+$/.test(requestIdentity.tgId)) {
       setNotice({
         icon: "📱",
         title: "Telegram-এ খুলুন",
-        desc: "এড দেখে reward পেতে এই অ্যাপটি Telegram Mini App এর ভিতর থেকে খুলুন।",
+        desc: "এড দেখে reward পেতে এই অ্যাপটি সঠিক Telegram Mini App সেশন থেকে খুলুন।",
       });
       return;
     }
+
+    // Check the signed session and fresh daily limit before opening an ad. If authentication,
+    // database access, or the daily limit is already a problem, avoid making the user watch an ad
+    // that the server cannot reward.
     setVerifyingClaim(false);
+    setCheckingSession(true);
     setStage("loading");
+    try {
+      const status = await statusFn({ data: requestIdentity });
+      setWatched(status.watched);
+      setCfg((c) => ({ ...c, limit: status.limit }));
+      setResetAt(status.resetAt);
+      if (status.watched >= status.limit) {
+        setStage("intro");
+        setNotice({
+          icon: "⏳",
+          title: "আজকের এড লিমিট শেষ",
+          desc: status.resetAt
+            ? `আবার এড দেখতে পারবেন: ${new Date(status.resetAt).toLocaleString("bn-BD", { hour: "numeric", minute: "2-digit", day: "numeric", month: "short" })}`
+            : "দুপুর ১২টার পর আবার এড দেখতে পারবেন।",
+        });
+        return;
+      }
+    } catch (error) {
+      setStage("intro");
+      setNotice(getAdPreflightErrorNotice(error));
+      return;
+    } finally {
+      setCheckingSession(false);
+    }
+
     const showAd = await waitForShowGiga(GIGA_READY_TIMEOUT_MS);
     // No ad available: never run the timer as if an ad were shown, so no reward can be granted.
     if (!showAd) {
@@ -303,14 +370,9 @@ function AdsPage() {
       void Promise.resolve(showAd())
         .then(() => {
           if (activeAttempt.current !== attempt) return;
-          if (getAdWatchSecondsLeft(attempt) > 0) {
-            cancel(attempt, {
-              icon: "⏱️",
-              title: "সময় শেষ হয়নি",
-              desc: "এড বন্ধ করার আগে পুরো সময় দেখতে হবে — এবার রিওয়ার্ড পাবেন না।",
-            });
-            return;
-          }
+          // GigaPub resolves when it has a completed impression. Some ads finish before the
+          // configured minimum countdown, so remember the success and let the timer finish;
+          // rejecting here would discard a valid impression and never send its reward claim.
           markAdWatched(attempt);
           tryFinish(attempt);
         })
@@ -421,7 +483,11 @@ function AdsPage() {
               📺
             </div>
             <h2 className="mt-4 font-display text-xl">
-              {verifyingClaim ? "রিওয়ার্ড যাচাই হচ্ছে…" : "এড লোড হচ্ছে…"}
+              {verifyingClaim
+                ? "রিওয়ার্ড যাচাই হচ্ছে…"
+                : checkingSession
+                  ? "Telegram সেশন যাচাই হচ্ছে…"
+                  : "এড লোড হচ্ছে…"}
             </h2>
             <p className="mt-3 text-sm text-muted-foreground">একটু অপেক্ষা করুন।</p>
           </div>

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ad_views, players } from "../../drizzle/schema";
-import { recordAdView } from "@/lib/ads.functions";
+import { getAdStatus, recordAdView } from "@/lib/ads.functions";
 import { getDb } from "@/lib/database";
 import { creditWithin } from "@/lib/balance.server";
 
@@ -56,6 +56,7 @@ function createMockDb(selectResults: unknown[][]) {
     },
   };
   const db = {
+    select: () => new MockQuery(selectResults[nextSelectResult++] ?? []),
     transaction: (callback: (transaction: typeof tx) => unknown) => callback(tx),
   };
   return { db, insertedTables };
@@ -69,6 +70,21 @@ const data = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+});
+
+describe("getAdStatus", () => {
+  it("rejects blocked users before they start an ad that cannot be rewarded", async () => {
+    const { db } = createMockDb([
+      [{ watched: 0 }],
+      [{ daily_ads: 10, ad_reward: 5 }],
+      [{ blocked: true }],
+    ]);
+    vi.mocked(getDb).mockReturnValue(db as unknown as ReturnType<typeof getDb>);
+
+    await expect(getAdStatus({ data: { tgId: "12345" } })).rejects.toThrow(
+      "Your account is blocked.",
+    );
+  });
 });
 
 describe("recordAdView", () => {
