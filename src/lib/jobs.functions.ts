@@ -14,9 +14,9 @@ const identity = z.object({
   username: z.string().trim().max(64).nullable().optional(),
   photo: z.string().url().max(500).nullable().optional(),
 });
-const input = identity.extend({ kind: z.enum(["typing", "quiz"]) });
+const input = identity.extend({ kind: z.enum(["typing", "quiz", "ads"]) });
 
-type Kind = "typing" | "quiz";
+type Kind = "typing" | "quiz" | "ads";
 
 function authenticatedId(data: z.infer<typeof identity>): string {
   const user = requireTelegramUser(data.initData, {
@@ -42,8 +42,11 @@ async function getStatus(tgId: string, kind: Kind) {
       ),
     db.select().from(app_settings).where(eq(app_settings.id, 1)).limit(1),
   ]);
-  const limit = kind === "typing" ? (config?.daily_typing ?? 5) : (config?.daily_quiz ?? 5);
-  return { done: result?.done ?? 0, limit, resetAt, reward: config?.task_reward ?? 5 };
+  const limit = kind === "typing" ? (config?.daily_typing ?? 5) : 
+                kind === "quiz" ? (config?.daily_quiz ?? 5) :
+                (config?.daily_ads ?? 10); // ads default 10
+  return { done: result?.done ?? 0, limit, resetAt, reward: 
+    kind === "ads" ? (config?.ad_reward ?? 5) : (config?.task_reward ?? 5) };
 }
 
 export const getJobStatus = createServerFn({ method: "POST" })
@@ -87,7 +90,9 @@ export const recordJob = createServerFn({ method: "POST" })
         tx.select().from(app_settings).where(eq(app_settings.id, 1)).limit(1),
       ]);
       const limit =
-        data.kind === "typing" ? (config?.daily_typing ?? 5) : (config?.daily_quiz ?? 5);
+        data.kind === "typing" ? (config?.daily_typing ?? 5) : 
+        data.kind === "quiz" ? (config?.daily_quiz ?? 5) :
+        (config?.daily_ads ?? 10); // ads default 10
       const done = result?.done ?? 0;
       if (done >= limit) return { ok: false, done, limit, balance: null as number | null };
 
@@ -95,7 +100,7 @@ export const recordJob = createServerFn({ method: "POST" })
       const balance = await creditWithin(
         tx as unknown as BalanceExecutor,
         tgId,
-        config?.task_reward ?? 5,
+        data.kind === "ads" ? (config?.ad_reward ?? 5) : (config?.task_reward ?? 5),
       );
       if (balance === null) throw new Error("Reward could not be credited.");
       return { ok: true, done: done + 1, limit, balance };

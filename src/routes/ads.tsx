@@ -1,11 +1,9 @@
 ﻿import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { PageShell } from "@/components/AppShell";
 import { loadSettings, settings } from "@/lib/settings";
-import { useServerFn } from "@tanstack/react-start";
-import { claimAdReward } from "@/lib/ads.functions";
-import { getTgUser } from "@/lib/telegram";
-import { setServerBalance } from "@/lib/wallet";
+import { useEffect } from "react";
+import { useJobLimit, LimitInfo } from "@/components/JobLimit";
 
 export const Route = createFileRoute("/ads")({
   head: () => ({
@@ -46,11 +44,7 @@ function useGigaPubScript() {
 function AdsPage() {
   const [stage, setStage] = useState<"ready" | "watching" | "success">("ready");
   const [reward, setReward] = useState(5);
-  const claimFn = useServerFn(claimAdReward);
-  const tgUser = getTgUser();
-  
-  // Debug user info
-  console.log("👤 Current user:", tgUser);
+  const job = useJobLimit("ads");
   
   useGigaPubScript();
   
@@ -91,31 +85,17 @@ function AdsPage() {
   const giveReward = async () => {
     console.log("🔧 Starting giveReward function...");
     try {
-      console.log("📞 Calling claimAdReward with data:", {
-        tgId: tgUser.id || tgUser.username,
-        name: tgUser.name,
-        username: tgUser.username,
-        photoUrl: tgUser.photo
-      });
+      console.log("📞 Calling job.record()...");
+      const success = await job.record();
       
-      const result = await claimFn({ 
-        data: {
-          tgId: tgUser.id || tgUser.username || "test_user",
-          name: tgUser.name || "Test User",
-          username: tgUser.username || null,
-          photoUrl: tgUser.photo || null
-        }
-      });
+      console.log("📊 Job record result:", success);
       
-      console.log("📊 Server response:", result);
-      
-      if (result.success) {
-        console.log("💰 Reward successful, updating balance:", result.balance);
-        setServerBalance(result.balance);
+      if (success) {
+        console.log("💰 Reward successful!");
         setStage("success");
         console.log("✅ Stage set to success");
       } else {
-        console.log("❌ Reward failed:", result);
+        console.log("❌ Reward failed (probably daily limit reached)");
         setStage("ready");
       }
     } catch (error) {
@@ -128,21 +108,25 @@ function AdsPage() {
     <PageShell title="Ads Video">
       {stage === "ready" && (
         <div className="space-y-6">
-          <div className="rounded-2xl bg-card p-6 text-center shadow-card">
-            <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-2xl header-grad text-4xl mb-4">
-              📺
+          <LimitInfo st={job.st} left={job.left} />
+          
+          {job.left !== 0 && (
+            <div className="rounded-2xl bg-card p-6 text-center shadow-card">
+              <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-2xl header-grad text-4xl mb-4">
+                📺
+              </div>
+              <h2 className="font-display text-2xl mb-2">ভিডিও দেখে আয় করুন</h2>
+              <p className="text-muted-foreground mb-6">
+                বিজ্ঞাপন দেখা শেষে ৳{reward} পাবেন
+              </p>
+              <button
+                onClick={watchAd}
+                className="w-full rounded-xl header-grad py-4 text-lg font-semibold text-primary-foreground shadow-card"
+              >
+                ভিডিও দেখুন
+              </button>
             </div>
-            <h2 className="font-display text-2xl mb-2">ভিডিও দেখে আয় করুন</h2>
-            <p className="text-muted-foreground mb-6">
-              বিজ্ঞাপন দেখা শেষে ৳{reward} পাবেন
-            </p>
-            <button
-              onClick={watchAd}
-              className="w-full rounded-xl header-grad py-4 text-lg font-semibold text-primary-foreground shadow-card"
-            >
-              ভিডিও দেখুন
-            </button>
-          </div>
+          )}
         </div>
       )}
       

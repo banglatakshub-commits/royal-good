@@ -4,7 +4,7 @@ import { getJobStatus, recordJob } from "@/lib/jobs.functions";
 import { getTgIdentity } from "@/lib/telegram";
 import { setServerBalance } from "@/lib/wallet";
 
-export function useJobLimit(kind: "typing" | "quiz") {
+export function useJobLimit(kind: "typing" | "quiz" | "ads") {
   const statusFn = useServerFn(getJobStatus);
   const recordFn = useServerFn(recordJob);
   const queryClient = useQueryClient();
