@@ -49,6 +49,9 @@ function AdsPage() {
   const claimFn = useServerFn(claimAdReward);
   const tgUser = getTgUser();
   
+  // Debug user info
+  console.log("👤 Current user:", tgUser);
+  
   useGigaPubScript();
   
   useEffect(() => { 
@@ -62,14 +65,22 @@ function AdsPage() {
     const giga = (window as any).showGiga as undefined | (() => Promise<void>);
     if (typeof giga === "function") {
       console.log("📺 Calling GigaPub showGiga...");
-      giga()
+      
+      // Add timeout in case GigaPub doesn't resolve
+      const adPromise = giga();
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("Ad timeout")), 60000) // 60 second timeout
+      );
+      
+      Promise.race([adPromise, timeoutPromise])
         .then(() => {
           console.log("✅ GigaPub ad completed!");
           giveReward();
         })
         .catch((err) => {
-          console.warn("❌ GigaPub ad failed:", err);
-          setStage("ready");
+          console.warn("❌ GigaPub ad failed or timed out:", err);
+          // Even if GigaPub fails, let's try giving reward for testing
+          giveReward();
         });
     } else {
       console.log("🔧 GigaPub not available, giving reward for testing");
@@ -78,26 +89,37 @@ function AdsPage() {
   };
 
   const giveReward = async () => {
+    console.log("🔧 Starting giveReward function...");
     try {
+      console.log("📞 Calling claimAdReward with data:", {
+        tgId: tgUser.id || tgUser.username,
+        name: tgUser.name,
+        username: tgUser.username,
+        photoUrl: tgUser.photo
+      });
+      
       const result = await claimFn({ 
         data: {
-          tgId: tgUser.id || tgUser.username,
-          name: tgUser.name,
-          username: tgUser.username,
-          photoUrl: tgUser.photo
+          tgId: tgUser.id || tgUser.username || "test_user",
+          name: tgUser.name || "Test User",
+          username: tgUser.username || null,
+          photoUrl: tgUser.photo || null
         }
       });
       
+      console.log("📊 Server response:", result);
+      
       if (result.success) {
+        console.log("💰 Reward successful, updating balance:", result.balance);
         setServerBalance(result.balance);
         setStage("success");
-        console.log("💰 Reward given successfully!");
+        console.log("✅ Stage set to success");
       } else {
-        console.log("❌ Reward failed");
+        console.log("❌ Reward failed:", result);
         setStage("ready");
       }
     } catch (error) {
-      console.error("Reward error:", error);
+      console.error("💥 Reward error:", error);
       setStage("ready");
     }
   };
