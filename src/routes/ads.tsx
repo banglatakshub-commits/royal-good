@@ -6,6 +6,7 @@ import { RewardDone } from "@/components/RewardDone";
 import { loadSettings, settings } from "@/lib/settings";
 import { useServerFn } from "@tanstack/react-start";
 import { getAdStatus, recordAdView } from "@/lib/ads.functions";
+import { syncPlayer } from "@/lib/players";
 import { getTgIdentity } from "@/lib/telegram";
 import { setServerBalance } from "@/lib/wallet";
 
@@ -24,30 +25,70 @@ export const Route = createFileRoute("/ads")({
 });
 
 const WATCH_SECONDS = 10;
+// How long to wait for the GigaPub script to define window.showGiga before giving up.
+const GIGA_READY_TIMEOUT_MS = 8000;
+// GigaPub's documented fallback domains: the second is tried if the first fails to load.
+const GIGA_DOMAINS = ["https://ad.gigapub.tech", "https://ru-ad.gigapub.tech"];
+const GIGA_DOMAIN_TIMEOUT_MS = 15000;
 
-// GigaPub ad network script — loads window.showGiga
+type GigaWindow = Window & { showGiga?: () => Promise<void> };
+
+function loadGigaScript(sid: string, domainIndex = 0) {
+  const existing = document.getElementById("gigapub-script");
+  if (existing) existing.remove();
+  const s = document.createElement("script");
+  s.id = "gigapub-script";
+  s.dataset["sid"] = sid;
+  s.src = `${GIGA_DOMAINS[domainIndex]}/script?id=${sid}`;
+  s.async = true;
+  const tryNext = () => {
+    if (domainIndex + 1 < GIGA_DOMAINS.length) loadGigaScript(sid, domainIndex + 1);
+  };
+  s.onerror = tryNext;
+  // If the script loads but never defines showGiga (blocked or stalled), try the next domain.
+  setTimeout(() => {
+    if (!(window as GigaWindow).showGiga && document.getElementById("gigapub-script") === s) {
+      tryNext();
+    }
+  }, GIGA_DOMAIN_TIMEOUT_MS);
+  document.head.appendChild(s);
+}
+
+// GigaPub ad network script — defines window.showGiga.
 // Script ID comes from app_settings so it can be changed from the admin panel.
 function useGigaPubScript() {
   useEffect(() => {
-    // GigaPub only works inside Telegram; outside it shows a browser alert.
+    // GigaPub only works inside Telegram.
     const webApp = (window as Window & { Telegram?: { WebApp?: { initData?: string } } }).Telegram
       ?.WebApp;
     if (!webApp?.initData) return;
     loadSettings().then(() => {
       const sid = (settings.ads_script_id || "8594").replace(/\D/g, "") || "8594";
-      const src = `https://ad.gigapub.tech/script?id=${sid}`;
       const existing = document.getElementById("gigapub-script") as HTMLScriptElement | null;
-      if (existing) {
-        if (existing.src === src) return;
-        existing.remove();
-      }
-      const s = document.createElement("script");
-      s.id = "gigapub-script";
-      s.src = src;
-      s.async = true;
-      document.head.appendChild(s);
+      if (existing?.dataset["sid"] === sid) return;
+      loadGigaScript(sid);
     });
   }, []);
+}
+
+/** Resolve with window.showGiga once the GigaPub script defines it, or null after the timeout. */
+function waitForShowGiga(timeoutMs: number): Promise<(() => Promise<void>) | null> {
+  return new Promise((resolve) => {
+    const started = Date.now();
+    const check = () => {
+      const giga = (window as GigaWindow).showGiga;
+      if (typeof giga === "function") {
+        resolve(() => giga.call(window));
+        return;
+      }
+      if (Date.now() - started >= timeoutMs) {
+        resolve(null);
+        return;
+      }
+      setTimeout(check, 200);
+    };
+    check();
+  });
 }
 
 /** Telegram Mini App initData is only present when the app is opened inside Telegram. */
@@ -58,7 +99,7 @@ function readTelegramInitData(): string {
 }
 
 function AdsPage() {
-  const [stage, setStage] = useState<"intro" | "watch" | "done">("intro");
+  const [stage, setStage] = useState<"intro" | "loading" | "watch" | "done">("intro");
   // null = not checked yet (SSR/first paint); false = opened outside Telegram, so rewards can't be verified.
   const [inTelegram, setInTelegram] = useState<boolean | null>(null);
   useEffect(() => {
@@ -83,6 +124,9 @@ function AdsPage() {
   const [notice, setNotice] = useState<{ icon: string; title: string; desc: string } | null>(null);
   const finish = useCallback(async () => {
     try {
+      // A first-time user can open /ads directly, before any page has created their players row.
+      // Recording the view needs that row, so make sure it exists first (balance is never changed here).
+      await syncPlayer({ data: identity() });
       const r = await recordFn({ data: identity() });
       setWatched(r.watched);
       setResetAt(r.resetAt);
@@ -120,7 +164,7 @@ function AdsPage() {
     setNotice(n);
   };
 
-  const start = () => {
+  const start = async () => {
     // Outside Telegram the server rejects the reward at the end, so don't run the timer at all.
     if (!readTelegramInitData()) {
       setNotice({
@@ -130,34 +174,41 @@ function AdsPage() {
       });
       return;
     }
+    setStage("loading");
+    const showAd = await waitForShowGiga(GIGA_READY_TIMEOUT_MS);
+    // No ad available: never run the timer as if an ad were shown, so no reward can be granted.
+    if (!showAd) {
+      setStage("intro");
+      setNotice({
+        icon: "📭",
+        title: "এড এখন লোড হয়নি",
+        desc: "ইন্টারনেট সংযোগ দেখে একটু পরে আবার চেষ্টা করুন। এড না দেখা পর্যন্ত reward পাবেন না।",
+      });
+      return;
+    }
     adDone.current = false;
     timeDone.current = total <= 0;
     finished.current = false;
     setLeft(total);
     setStage("watch");
-    const giga = (window as Window & { showGiga?: () => Promise<void> }).showGiga;
-    if (typeof giga === "function") {
-      giga()
-        .then(() => {
-          adDone.current = true;
-          if (!timeDone.current)
-            cancel({
-              icon: "⏱️",
-              title: "সময় শেষ হয়নি",
-              desc: "এড বন্ধ করার আগে পুরো সময় দেখতে হবে — এবার রিওয়ার্ড পাবেন না।",
-            });
-          else tryFinish();
-        })
-        .catch(() =>
+    showAd()
+      .then(() => {
+        adDone.current = true;
+        if (!timeDone.current)
           cancel({
-            icon: "📭",
-            title: "এড পাওয়া যায়নি",
-            desc: "এখন কোনো বিজ্ঞাপন নেই, একটু পরে আবার চেষ্টা করুন।",
-          }),
-        );
-    } else {
-      adDone.current = true;
-    }
+            icon: "⏱️",
+            title: "সময় শেষ হয়নি",
+            desc: "এড বন্ধ করার আগে পুরো সময় দেখতে হবে — এবার রিওয়ার্ড পাবেন না।",
+          });
+        else tryFinish();
+      })
+      .catch(() =>
+        cancel({
+          icon: "📭",
+          title: "এড পাওয়া যায়নি",
+          desc: "এখন কোনো বিজ্ঞাপন নেই, একটু পরে আবার চেষ্টা করুন।",
+        }),
+      );
     if (total <= 0) tryFinish();
   };
 
@@ -215,6 +266,18 @@ function AdsPage() {
         />
       )}
       {stage === "intro" && <HowItWorks kind="ads" />}
+
+      {stage === "loading" && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-foreground/50 p-6">
+          <div className="w-full max-w-sm rounded-3xl bg-card p-6 text-center shadow-card">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl header-grad text-3xl">
+              📺
+            </div>
+            <h2 className="mt-4 font-display text-xl">এড লোড হচ্ছে…</h2>
+            <p className="mt-3 text-sm text-muted-foreground">একটু অপেক্ষা করুন।</p>
+          </div>
+        </div>
+      )}
 
       {stage === "watch" && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-foreground/50 p-6">
