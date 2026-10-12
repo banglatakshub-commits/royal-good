@@ -9,6 +9,13 @@ import { getAdStatus, recordAdView } from "@/lib/ads.functions";
 import { syncPlayer } from "@/lib/players";
 import { getTgIdentity } from "@/lib/telegram";
 import { setServerBalance } from "@/lib/wallet";
+import {
+  claimAdReward,
+  createAdWatchAttempt,
+  getAdWatchSecondsLeft,
+  markAdWatched,
+  type AdWatchAttempt,
+} from "@/lib/ad-watch";
 
 export const Route = createFileRoute("/ads")({
   head: () => ({
@@ -143,23 +150,31 @@ function AdsPage() {
   const [total, setTotal] = useState(settings.ad_seconds ?? WATCH_SECONDS);
   const [left, setLeft] = useState(total);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
-  const adDone = useRef(false);
-  const timeDone = useRef(false);
-  const finished = useRef(false);
+  const activeAttempt = useRef<AdWatchAttempt | null>(null);
   useGigaPubScript();
   useEffect(() => {
     loadSettings().then((st) => setTotal(st.ad_seconds ?? WATCH_SECONDS));
   }, []);
 
-  const tryFinish = useCallback(() => {
-    if (finished.current || !adDone.current || !timeDone.current) return;
-    finished.current = true;
-    finish();
-  }, [finish]);
-  const cancel = (n: { icon: string; title: string; desc: string }) => {
-    if (finished.current) return;
-    finished.current = true;
-    if (timer.current) clearInterval(timer.current);
+  const tryFinish = useCallback(
+    (attempt: AdWatchAttempt) => {
+      if (activeAttempt.current !== attempt || !claimAdReward(attempt)) return;
+      activeAttempt.current = null;
+      if (timer.current) {
+        clearInterval(timer.current);
+        timer.current = null;
+      }
+      void finish();
+    },
+    [finish],
+  );
+  const cancel = (attempt: AdWatchAttempt, n: { icon: string; title: string; desc: string }) => {
+    if (activeAttempt.current !== attempt) return;
+    activeAttempt.current = null;
+    if (timer.current) {
+      clearInterval(timer.current);
+      timer.current = null;
+    }
     setStage("intro");
     setNotice(n);
   };
@@ -186,47 +201,73 @@ function AdsPage() {
       });
       return;
     }
-    adDone.current = false;
-    timeDone.current = total <= 0;
-    finished.current = false;
+    const attempt = createAdWatchAttempt(total);
+    activeAttempt.current = attempt;
     setLeft(total);
     setStage("watch");
-    showAd()
-      .then(() => {
-        adDone.current = true;
-        if (!timeDone.current)
-          cancel({
-            icon: "⏱️",
-            title: "সময় শেষ হয়নি",
-            desc: "এড বন্ধ করার আগে পুরো সময় দেখতে হবে — এবার রিওয়ার্ড পাবেন না।",
+    // Call synchronously inside the tap handler to preserve Telegram/browser user activation.
+    // The promise callback may race React's countdown (hidden webviews throttle timers),
+    // so completion checks the absolute deadline instead of a timer-state flag.
+    try {
+      void Promise.resolve(showAd())
+        .then(() => {
+          if (activeAttempt.current !== attempt) return;
+          if (getAdWatchSecondsLeft(attempt) > 0) {
+            cancel(attempt, {
+              icon: "⏱️",
+              title: "সময় শেষ হয়নি",
+              desc: "এড বন্ধ করার আগে পুরো সময় দেখতে হবে — এবার রিওয়ার্ড পাবেন না।",
+            });
+            return;
+          }
+          markAdWatched(attempt);
+          tryFinish(attempt);
+        })
+        .catch(() => {
+          cancel(attempt, {
+            icon: "📭",
+            title: "এড পাওয়া যায়নি",
+            desc: "এখন কোনো বিজ্ঞাপন নেই, একটু পরে আবার চেষ্টা করুন।",
           });
-        else tryFinish();
-      })
-      .catch(() =>
-        cancel({
-          icon: "📭",
-          title: "এড পাওয়া যায়নি",
-          desc: "এখন কোনো বিজ্ঞাপন নেই, একটু পরে আবার চেষ্টা করুন।",
-        }),
-      );
-    if (total <= 0) tryFinish();
+        });
+    } catch {
+      cancel(attempt, {
+        icon: "📭",
+        title: "এড পাওয়া যায়নি",
+        desc: "এখন কোনো বিজ্ঞাপন নেই, একটু পরে আবার চেষ্টা করুন।",
+      });
+    }
   };
 
   useEffect(() => {
     if (stage !== "watch") return;
-    timer.current = setInterval(() => {
-      setLeft((s) => {
-        if (s <= 1) {
-          if (timer.current) clearInterval(timer.current);
-          timeDone.current = true;
-          tryFinish();
-          return 0;
+    const attempt = activeAttempt.current;
+    if (!attempt) return;
+
+    const updateCountdown = () => {
+      if (activeAttempt.current !== attempt) return true;
+      const next = getAdWatchSecondsLeft(attempt);
+      setLeft(next);
+      if (next === 0) {
+        tryFinish(attempt);
+        return true;
+      }
+      return false;
+    };
+
+    if (!updateCountdown()) {
+      timer.current = setInterval(() => {
+        if (updateCountdown() && timer.current) {
+          clearInterval(timer.current);
+          timer.current = null;
         }
-        return s - 1;
-      });
-    }, 1000);
+      }, 1000);
+    }
     return () => {
-      if (timer.current) clearInterval(timer.current);
+      if (timer.current) {
+        clearInterval(timer.current);
+        timer.current = null;
+      }
     };
   }, [stage, tryFinish]);
 
