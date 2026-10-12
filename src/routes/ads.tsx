@@ -267,9 +267,10 @@ function AdsPage() {
       } catch (error) {
         console.error("Ad reward error:", error);
         setVerifyingClaim(false);
-        // Keep pendingClaimId so user can retry OR clear it to watch new ad
-        setNotice(getAdClaimErrorNotice(error));
+        // Clear pending claim and return to intro - no popup, just silently allow retry
+        persistPendingClaim(null);
         setStage("intro");
+        // User can immediately watch another ad, no blocking popup
       }
     },
     [identity, persistPendingClaim, recordFn],
@@ -296,7 +297,7 @@ function AdsPage() {
     },
     [finish],
   );
-  const cancel = (attempt: AdWatchAttempt, n: { icon: string; title: string; desc: string }) => {
+  const cancel = (attempt: AdWatchAttempt, n?: { icon: string; title: string; desc: string }) => {
     if (activeAttempt.current !== attempt) return;
     activeAttempt.current = null;
     if (timer.current) {
@@ -304,7 +305,8 @@ function AdsPage() {
       timer.current = null;
     }
     setStage("intro");
-    setNotice(n);
+    // Only show notice if explicitly provided (for important cases like daily limit)
+    if (n) setNotice(n);
   };
 
   const start = async () => {
@@ -348,21 +350,17 @@ function AdsPage() {
       }
     } catch (error) {
       setStage("intro");
-      setNotice(getAdPreflightErrorNotice(error));
+      // Silently fail - no popup, user can try again
+      console.warn("Ad preflight check failed:", error);
       return;
     } finally {
       setCheckingSession(false);
     }
 
     const showAd = await waitForShowGiga(GIGA_READY_TIMEOUT_MS);
-    // No ad available: never run the timer as if an ad were shown, so no reward can be granted.
+    // No ad available: silently return to intro, user can try again
     if (!showAd) {
       setStage("intro");
-      setNotice({
-        icon: "📭",
-        title: "এড এখন লোড হয়নি",
-        desc: "ইন্টারনেট সংযোগ দেখে একটু পরে আবার চেষ্টা করুন। এড না দেখা পর্যন্ত reward পাবেন না।",
-      });
       return;
     }
     const attempt = createAdWatchAttempt(total);
@@ -383,18 +381,24 @@ function AdsPage() {
           tryFinish(attempt);
         })
         .catch(() => {
-          cancel(attempt, {
-            icon: "📭",
-            title: "এড পাওয়া যায়নি",
-            desc: "এখন কোনো বিজ্ঞাপন নেই, একটু পরে আবার চেষ্টা করুন।",
-          });
+          // Silently cancel - user can try again without popup
+          if (activeAttempt.current !== attempt) return;
+          activeAttempt.current = null;
+          if (timer.current) {
+            clearInterval(timer.current);
+            timer.current = null;
+          }
+          setStage("intro");
         });
     } catch {
-      cancel(attempt, {
-        icon: "📭",
-        title: "এড পাওয়া যায়নি",
-        desc: "এখন কোনো বিজ্ঞাপন নেই, একটু পরে আবার চেষ্টা করুন।",
-      });
+      // Silently cancel - user can try again without popup
+      if (activeAttempt.current !== attempt) return;
+      activeAttempt.current = null;
+      if (timer.current) {
+        clearInterval(timer.current);
+        timer.current = null;
+      }
+      setStage("intro");
     }
   };
 
