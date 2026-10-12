@@ -134,7 +134,7 @@ function getAdClaimErrorNotice(error: unknown) {
   return {
     icon: "🔄",
     title: "রিওয়ার্ড সংরক্ষিত আছে",
-    desc: "'আবার যাচাই করুন' বাটন চাপুন। আপনার বিজ্ঞাপন দেখা হয়েছে, রিওয়ার্ড যাচাই করা হচ্ছে।",
+    desc: "নিচের যেকোনো একটি বাটন চাপুন: রিওয়ার্ড যাচাই করতে চেষ্টা করুন অথবা নতুন এড দেখুন।",
   };
 }
 
@@ -267,6 +267,7 @@ function AdsPage() {
       } catch (error) {
         console.error("Ad reward error:", error);
         setVerifyingClaim(false);
+        // Keep pendingClaimId so user can retry OR clear it to watch new ad
         setNotice(getAdClaimErrorNotice(error));
         setStage("intro");
       }
@@ -534,16 +535,36 @@ function AdsPage() {
             </div>
             <h2 className="mt-4 font-display text-xl">{notice.title}</h2>
             <p className="mt-2 text-sm text-muted-foreground">{notice.desc}</p>
-            <button
-              onClick={() => {
-                const claimId = pendingClaimId;
-                setNotice(null);
-                if (claimId) void finish(claimId);
-              }}
-              className="mt-5 w-full rounded-xl header-grad py-3 font-semibold text-primary-foreground shadow-card"
-            >
-              {pendingClaimId ? "রিওয়ার্ড আবার যাচাই করুন" : "ঠিক আছে"}
-            </button>
+            {pendingClaimId ? (
+              <div className="mt-5 flex flex-col gap-2">
+                <button
+                  onClick={() => {
+                    const claimId = pendingClaimId;
+                    setNotice(null);
+                    if (claimId) void finish(claimId);
+                  }}
+                  className="w-full rounded-xl header-grad py-3 font-semibold text-primary-foreground shadow-card"
+                >
+                  রিওয়ার্ড আবার যাচাই করুন
+                </button>
+                <button
+                  onClick={() => {
+                    persistPendingClaim(null);
+                    setNotice(null);
+                  }}
+                  className="w-full rounded-xl bg-tile py-3 font-semibold text-foreground"
+                >
+                  নতুন এড দেখুন
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setNotice(null)}
+                className="mt-5 w-full rounded-xl header-grad py-3 font-semibold text-primary-foreground shadow-card"
+              >
+                ঠিক আছে
+              </button>
+            )}
           </div>
         </div>
       )}
