@@ -33,13 +33,15 @@ function authenticatedUser(data: AdInput) {
 async function getStatus(tgId: string) {
   const db = getDb();
   const { since, resetAt } = getDhakaNoonWindow();
-  const [[result], [config]] = await Promise.all([
+  const [[result], [config], [player]] = await Promise.all([
     db
       .select({ watched: count(ad_views.id) })
       .from(ad_views)
       .where(and(eq(ad_views.tg_id, tgId), gte(ad_views.created_at, since))),
     db.select().from(app_settings).where(eq(app_settings.id, 1)).limit(1),
+    db.select({ blocked: players.blocked }).from(players).where(eq(players.tg_id, tgId)).limit(1),
   ]);
+  if (player?.blocked) throw new Error("Your account is blocked.");
   return {
     watched: result?.watched ?? 0,
     limit: config?.daily_ads ?? 10,
