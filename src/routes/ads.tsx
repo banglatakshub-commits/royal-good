@@ -119,7 +119,7 @@ function AdsPage() {
     setNotice(n);
   };
   const start = () => {
-    console.log("🚀 Starting ad watch...");
+    console.log("🚀 Starting ad watch... v2");
     adDone.current = false; 
     timeDone.current = total <= 0; 
     finished.current = false;
