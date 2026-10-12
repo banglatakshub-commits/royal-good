@@ -1,4 +1,4 @@
-import { HowItWorks } from "@/components/HowItWorks";
+﻿import { HowItWorks } from "@/components/HowItWorks";
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PageShell, JobIntro } from "@/components/AppShell";
@@ -132,9 +132,9 @@ function getAdClaimErrorNotice(error: unknown) {
     };
   }
   return {
-    icon: "⚠️",
-    title: "রিওয়ার্ড নিশ্চিত হয়নি",
-    desc: "সার্ভারের সঙ্গে যোগাযোগে সমস্যা হয়েছে। বিজ্ঞাপনটি আবার না দেখে ‘আবার যাচাই করুন’ চাপুন—একই বিজ্ঞাপনের রিওয়ার্ড দ্বিগুণ হবে না।",
+    icon: "🔄",
+    title: "রিওয়ার্ড সংরক্ষিত আছে",
+    desc: "'আবার যাচাই করুন' বাটন চাপুন। আপনার বিজ্ঞাপন দেখা হয়েছে, রিওয়ার্ড যাচাই করা হচ্ছে।",
   };
 }
 
@@ -245,7 +245,12 @@ function AdsPage() {
           r = await recordFn(claim);
         } catch (firstError) {
           console.warn("Ad reward request failed; retrying the same claim:", firstError);
-          r = await recordFn(claim);
+          try {
+            r = await recordFn(claim);
+          } catch (secondError) {
+            console.error("Ad reward retry also failed:", secondError);
+            throw secondError;
+          }
         }
         setWatched(r.watched);
         setResetAt(r.resetAt);
