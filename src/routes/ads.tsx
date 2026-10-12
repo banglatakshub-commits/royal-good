@@ -285,30 +285,6 @@ function AdsPage() {
     loadSettings().then((st) => setTotal(st.ad_seconds ?? WATCH_SECONDS));
   }, []);
 
-  const tryFinish = useCallback(
-    (attempt: AdWatchAttempt) => {
-      if (activeAttempt.current !== attempt || !claimAdReward(attempt)) return;
-      activeAttempt.current = null;
-      if (timer.current) {
-        clearInterval(timer.current);
-        timer.current = null;
-      }
-      void finish(attempt.claimId);
-    },
-    [finish],
-  );
-  const cancel = (attempt: AdWatchAttempt, n?: { icon: string; title: string; desc: string }) => {
-    if (activeAttempt.current !== attempt) return;
-    activeAttempt.current = null;
-    if (timer.current) {
-      clearInterval(timer.current);
-      timer.current = null;
-    }
-    setStage("intro");
-    // Only show notice if explicitly provided (for important cases like daily limit)
-    if (n) setNotice(n);
-  };
-
   const start = async () => {
     if (pendingClaimId) {
       void finish(pendingClaimId);
@@ -367,18 +343,33 @@ function AdsPage() {
     activeAttempt.current = attempt;
     setLeft(total);
     setStage("watch");
+    
+    // Simple flag-based system like demo project
+    const state = { 
+      adCompleted: false, 
+      timerCompleted: total <= 0,
+      rewardClaimed: false 
+    };
+    
+    const tryFinish = () => {
+      if (state.rewardClaimed || !state.adCompleted || !state.timerCompleted) return;
+      state.rewardClaimed = true;
+      activeAttempt.current = null;
+      if (timer.current) {
+        clearInterval(timer.current);
+        timer.current = null;
+      }
+      void finish(attempt.claimId);
+    };
+    
     // Call synchronously inside the tap handler to preserve Telegram/browser user activation.
-    // The promise callback may race React's countdown (hidden webviews throttle timers),
-    // so completion checks the absolute deadline instead of a timer-state flag.
     try {
       void Promise.resolve(showAd())
         .then(() => {
           if (activeAttempt.current !== attempt) return;
-          // GigaPub resolves when it has a completed impression. Some ads finish before the
-          // configured minimum countdown, so remember the success and let the timer finish;
-          // rejecting here would discard a valid impression and never send its reward claim.
-          markAdWatched(attempt);
-          tryFinish(attempt);
+          // GigaPub confirms ad completion
+          state.adCompleted = true;
+          tryFinish();
         })
         .catch(() => {
           // Silently cancel - user can try again without popup
@@ -400,39 +391,26 @@ function AdsPage() {
       }
       setStage("intro");
     }
-  };
-
-  useEffect(() => {
-    if (stage !== "watch") return;
-    const attempt = activeAttempt.current;
-    if (!attempt) return;
-
-    const updateCountdown = () => {
-      if (activeAttempt.current !== attempt) return true;
-      const next = getAdWatchSecondsLeft(attempt);
-      setLeft(next);
-      if (next === 0) {
-        tryFinish(attempt);
-        return true;
-      }
-      return false;
-    };
-
-    if (!updateCountdown()) {
+    
+    // Start countdown timer
+    if (total > 0) {
       timer.current = setInterval(() => {
-        if (updateCountdown() && timer.current) {
-          clearInterval(timer.current);
-          timer.current = null;
+        if (activeAttempt.current !== attempt) {
+          if (timer.current) clearInterval(timer.current);
+          return;
+        }
+        const next = getAdWatchSecondsLeft(attempt);
+        setLeft(next);
+        if (next === 0) {
+          state.timerCompleted = true;
+          tryFinish();
         }
       }, 1000);
+    } else {
+      // If no minimum time, try finish immediately when ad completes
+      tryFinish();
     }
-    return () => {
-      if (timer.current) {
-        clearInterval(timer.current);
-        timer.current = null;
-      }
-    };
-  }, [stage, tryFinish]);
+  };
 
   return (
     <PageShell title="Ads Video">
