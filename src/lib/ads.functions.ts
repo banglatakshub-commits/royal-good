@@ -12,9 +12,9 @@ const input = z.object({
   tgId: z.string().trim().min(1).max(64),
   name: z.string().trim().max(100).optional(),
   username: z.string().trim().max(64).nullable().optional(),
-  photo: z.union([z.string().url().max(500), z.literal(""), z.null()]).optional(),
+  photo: z.string().url().max(500).nullable().optional(),
 });
-const adClaimInput = input.extend({ claimId: z.string().trim().min(1).max(100) });
+const adClaimInput = input.extend({ claimId: z.string().uuid() });
 
 type AdInput = z.infer<typeof input>;
 

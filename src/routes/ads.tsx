@@ -32,7 +32,7 @@ export const Route = createFileRoute("/ads")({
 
 const WATCH_SECONDS = 10;
 // How long to wait for the GigaPub script to define window.showGiga before giving up.
-const GIGA_READY_TIMEOUT_MS = 12000;
+const GIGA_READY_TIMEOUT_MS = 8000;
 // GigaPub's documented fallback domains: the second is tried if the first fails to load.
 const GIGA_DOMAINS = ["https://ad.gigapub.tech", "https://ru-ad.gigapub.tech"];
 const GIGA_DOMAIN_TIMEOUT_MS = 15000;
@@ -258,11 +258,6 @@ function AdsPage() {
         } else {
           persistPendingClaim(null);
           setStage("intro");
-          setNotice({
-            icon: "⏳",
-            title: "আজকের এড লিমিট শেষ",
-            desc: "আজকের এড দেখার লিমিট শেষ হয়ে গেছে। দুপুর ১২টার পর আবার চেষ্টা করুন।",
-          });
         }
       } catch (error) {
         console.error("Ad reward error:", error);
@@ -297,7 +292,6 @@ function AdsPage() {
   );
   const cancel = (attempt: AdWatchAttempt, n: { icon: string; title: string; desc: string }) => {
     if (activeAttempt.current !== attempt) return;
-    if (attempt.rewardClaimed) return;
     activeAttempt.current = null;
     if (timer.current) {
       clearInterval(timer.current);
@@ -315,10 +309,7 @@ function AdsPage() {
     const requestIdentity = identity();
     // Never start a paid impression with a missing or fallback client identity. The server
     // verifies the signed initData and requires its user ID to match this Telegram user ID.
-    if (
-      !import.meta.env.DEV &&
-      (!readTelegramInitData() || !/^\d+$/.test(requestIdentity.tgId))
-    ) {
+    if (!readTelegramInitData() || !/^\d+$/.test(requestIdentity.tgId)) {
       setNotice({
         icon: "📱",
         title: "Telegram-এ খুলুন",
@@ -379,36 +370,18 @@ function AdsPage() {
       void Promise.resolve(showAd())
         .then(() => {
           if (activeAttempt.current !== attempt) return;
-          // GigaPub resolves when it has a completed impression.
+          // GigaPub resolves when it has a completed impression. Some ads finish before the
+          // configured minimum countdown, so remember the success and let the timer finish;
+          // rejecting here would discard a valid impression and never send its reward claim.
           markAdWatched(attempt);
           tryFinish(attempt);
         })
-        .catch((err) => {
-          console.warn("GigaPub ad notice or closed:", err);
-          if (activeAttempt.current !== attempt) return;
-          // If the user already watched the required duration or countdown completed:
-          if (getAdWatchSecondsLeft(attempt) === 0 || attempt.adWatched) {
-            markAdWatched(attempt);
-            tryFinish(attempt);
-            return;
-          }
-          const startedAt = attempt.deadline - total * 1000;
-          const elapsed = Date.now() - startedAt;
-          // Only show 'No ad found' if it failed immediately at start (< 2500ms)
-          if (elapsed < 2500) {
-            cancel(attempt, {
-              icon: "📭",
-              title: "এড পাওয়া যায়নি",
-              desc: "এখন কোনো বিজ্ঞাপন নেই, একটু পরে আবার চেষ্টা করুন।",
-            });
-          } else {
-            // User closed the ad before the required minimum countdown
-            cancel(attempt, {
-              icon: "⏱️",
-              title: "এড সম্পূর্ণ দেখা হয়নি",
-              desc: "পুরো সময় এড না দেখলে reward পাওয়া যাবে না। অনুগ্রহ করে আবার চেষ্টা করুন।",
-            });
-          }
+        .catch(() => {
+          cancel(attempt, {
+            icon: "📭",
+            title: "এড পাওয়া যায়নি",
+            desc: "এখন কোনো বিজ্ঞাপন নেই, একটু পরে আবার চেষ্টা করুন।",
+          });
         });
     } catch {
       cancel(attempt, {
@@ -429,7 +402,6 @@ function AdsPage() {
       const next = getAdWatchSecondsLeft(attempt);
       setLeft(next);
       if (next === 0) {
-        markAdWatched(attempt);
         tryFinish(attempt);
         return true;
       }

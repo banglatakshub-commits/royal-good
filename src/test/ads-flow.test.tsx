@@ -153,27 +153,6 @@ describe("Ads Video reward flow", () => {
     expect(screen.getByTestId("reward-done")).toHaveTextContent("ভিডিও দেখা সম্পন্ন!");
   });
 
-  it("claims reward when the watch countdown completes even if ad close callback is pending", async () => {
-    // Keep showGiga pending as in a real ad playback
-    h.showGiga.mockReturnValue(new Promise(() => {}));
-
-    await renderAdsPage();
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "ভিডিও শুরু করুন" }));
-      await flushMicrotasks();
-    });
-    expect(screen.getByText("এড দেখছেন…")).toBeInTheDocument();
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(10_000);
-      await flushMicrotasks();
-    });
-
-    expect(h.recordAdView).toHaveBeenCalledTimes(1);
-    expect(h.setServerBalance).toHaveBeenCalledWith(25);
-    expect(screen.getByTestId("reward-done")).toHaveTextContent("ভিডিও দেখা সম্পন্ন!");
-  });
-
   it("does not open an ad if the Telegram session cannot be verified first", async () => {
     h.getAdStatus.mockRejectedValue(new Error("Telegram authentication is required."));
 

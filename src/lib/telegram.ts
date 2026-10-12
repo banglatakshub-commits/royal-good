@@ -41,10 +41,7 @@ export function getTgUser(): TelegramProfile {
       typeof user.username === "string" && user.username.length > 0
         ? user.username
         : String(user.id),
-    photo:
-      typeof user.photo_url === "string" && user.photo_url.trim().length > 0
-        ? user.photo_url
-        : null,
+    photo: typeof user.photo_url === "string" ? user.photo_url : null,
     id: user.id,
   };
 }
