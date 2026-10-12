@@ -50,8 +50,20 @@ function useGigaPubScript() {
   }, []);
 }
 
+/** Telegram Mini App initData is only present when the app is opened inside Telegram. */
+function readTelegramInitData(): string {
+  const webApp = (window as Window & { Telegram?: { WebApp?: { initData?: string } } }).Telegram
+    ?.WebApp;
+  return webApp?.initData ?? "";
+}
+
 function AdsPage() {
   const [stage, setStage] = useState<"intro" | "watch" | "done">("intro");
+  // null = not checked yet (SSR/first paint); false = opened outside Telegram, so rewards can't be verified.
+  const [inTelegram, setInTelegram] = useState<boolean | null>(null);
+  useEffect(() => {
+    setInTelegram(Boolean(readTelegramInitData()));
+  }, []);
   const [cfg, setCfg] = useState({ limit: settings.daily_ads, reward: settings.ad_reward });
   const [watched, setWatched] = useState(0);
   const [resetAt, setResetAt] = useState<string | null>(null);
@@ -77,7 +89,8 @@ function AdsPage() {
       setCfg((c) => ({ ...c, limit: r.limit }));
       if (r.ok) setServerBalance(r.balance);
       setStage(r.ok ? "done" : "intro");
-    } catch {
+    } catch (error) {
+      console.error("Ad reward error:", error);
       setNotice({ icon: "⚠️", title: "সমস্যা হয়েছে", desc: "একটু পরে আবার চেষ্টা করুন।" });
       setStage("intro");
     }
@@ -108,6 +121,15 @@ function AdsPage() {
   };
 
   const start = () => {
+    // Outside Telegram the server rejects the reward at the end, so don't run the timer at all.
+    if (!readTelegramInitData()) {
+      setNotice({
+        icon: "📱",
+        title: "Telegram-এ খুলুন",
+        desc: "এড দেখে reward পেতে এই অ্যাপটি Telegram Mini App এর ভিতর থেকে খুলুন।",
+      });
+      return;
+    }
     adDone.current = false;
     timeDone.current = total <= 0;
     finished.current = false;
@@ -175,7 +197,16 @@ function AdsPage() {
           </p>
         </div>
       )}
-      {stage === "intro" && remaining > 0 && (
+      {stage === "intro" && remaining > 0 && inTelegram === false && (
+        <div className="rounded-2xl bg-card p-6 text-center shadow-card">
+          <p className="text-4xl">📱</p>
+          <h2 className="mt-2 font-display text-xl">Telegram-এ খুলুন</h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            এড দেখে reward পেতে এই অ্যাপটি Telegram Mini App এর ভিতর থেকে খুলুন।
+          </p>
+        </div>
+      )}
+      {stage === "intro" && remaining > 0 && inTelegram !== false && (
         <JobIntro
           title="Ads Video"
           desc={`${total} সেকেন্ড পুরো এড দেখলেই ৳${cfg.reward} পাবেন।`}
