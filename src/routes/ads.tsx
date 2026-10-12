@@ -6,7 +6,6 @@ import { RewardDone } from "@/components/RewardDone";
 import { loadSettings, settings } from "@/lib/settings";
 import { useServerFn } from "@tanstack/react-start";
 import { getAdStatus, recordAdView } from "@/lib/ads.functions";
-import { syncPlayer } from "@/lib/players";
 import { getTgIdentity } from "@/lib/telegram";
 import { setServerBalance } from "@/lib/wallet";
 import {
@@ -105,6 +104,41 @@ function readTelegramInitData(): string {
   return webApp?.initData ?? "";
 }
 
+function getAdClaimErrorNotice(error: unknown) {
+  const message = error instanceof Error ? error.message.toLowerCase() : "";
+  if (message.includes("expired")) {
+    return {
+      icon: "🔄",
+      title: "Telegram সেশন মেয়াদ শেষ",
+      desc: "Telegram থেকে অ্যাপটি বন্ধ করে আবার খুলুন, তারপর রিওয়ার্ডটি যাচাই করুন। বিজ্ঞাপনটি আবার দেখতে হবে না।",
+    };
+  }
+  if (
+    message.includes("telegram authentication") ||
+    message.includes("open this app inside telegram")
+  ) {
+    return {
+      icon: "📱",
+      title: "Telegram সেশন যাচাই হয়নি",
+      desc: "অ্যাপটি Telegram-এর ভিতর থেকে আবার খুলে রিওয়ার্ড যাচাই করুন। বিজ্ঞাপনটি আবার দেখতে হবে না।",
+    };
+  }
+  if (message.includes("account is blocked")) {
+    return {
+      icon: "⚠️",
+      title: "অ্যাকাউন্ট সীমাবদ্ধ",
+      desc: "আপনার অ্যাকাউন্টে রিওয়ার্ড যোগ করা যায়নি। সহায়তার জন্য অ্যাডমিনের সঙ্গে যোগাযোগ করুন।",
+    };
+  }
+  return {
+    icon: "⚠️",
+    title: "রিওয়ার্ড নিশ্চিত হয়নি",
+    desc: "সার্ভারের সঙ্গে যোগাযোগে সমস্যা হয়েছে। বিজ্ঞাপনটি আবার না দেখে ‘আবার যাচাই করুন’ চাপুন—একই বিজ্ঞাপনের রিওয়ার্ড দ্বিগুণ হবে না।",
+  };
+}
+
+const PENDING_AD_CLAIM_KEY = "lg_pending_ad_claim_";
+
 function AdsPage() {
   const [stage, setStage] = useState<"intro" | "loading" | "watch" | "done">("intro");
   // null = not checked yet (SSR/first paint); false = opened outside Telegram, so rewards can't be verified.
@@ -129,23 +163,75 @@ function AdsPage() {
       .catch(() => {});
   }, [identity, statusFn]);
   const [notice, setNotice] = useState<{ icon: string; title: string; desc: string } | null>(null);
-  const finish = useCallback(async () => {
+  const [pendingClaimId, setPendingClaimId] = useState<string | null>(null);
+  const [verifyingClaim, setVerifyingClaim] = useState(false);
+  const persistPendingClaim = useCallback(
+    (claimId: string | null) => {
+      setPendingClaimId(claimId);
+      try {
+        const key = `${PENDING_AD_CLAIM_KEY}${identity().tgId}`;
+        if (claimId) window.localStorage.setItem(key, claimId);
+        else window.localStorage.removeItem(key);
+      } catch {
+        // The claim can still be retried while this page remains open if storage is unavailable.
+      }
+    },
+    [identity],
+  );
+  useEffect(() => {
     try {
-      // A first-time user can open /ads directly, before any page has created their players row.
-      // Recording the view needs that row, so make sure it exists first (balance is never changed here).
-      await syncPlayer({ data: identity() });
-      const r = await recordFn({ data: identity() });
-      setWatched(r.watched);
-      setResetAt(r.resetAt);
-      setCfg((c) => ({ ...c, limit: r.limit }));
-      if (r.ok) setServerBalance(r.balance);
-      setStage(r.ok ? "done" : "intro");
-    } catch (error) {
-      console.error("Ad reward error:", error);
-      setNotice({ icon: "⚠️", title: "সমস্যা হয়েছে", desc: "একটু পরে আবার চেষ্টা করুন।" });
-      setStage("intro");
+      const key = `${PENDING_AD_CLAIM_KEY}${identity().tgId}`;
+      const stored = window.localStorage.getItem(key);
+      if (
+        stored &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(stored)
+      ) {
+        setPendingClaimId(stored);
+      } else if (stored) {
+        window.localStorage.removeItem(key);
+      }
+    } catch {
+      // Storage can be disabled in embedded browsers; the ad flow still works in memory.
     }
-  }, [identity, recordFn]);
+  }, [identity]);
+  const finish = useCallback(
+    async (claimId: string) => {
+      persistPendingClaim(claimId);
+      setNotice(null);
+      setVerifyingClaim(true);
+      setStage("loading");
+      try {
+        // recordAdView creates a first-time profile and credits the reward in one transaction.
+        // Reusing this claim ID makes retry safe if the database committed but the response was lost.
+        const claim = { data: { ...identity(), claimId } };
+        let r: Awaited<ReturnType<typeof recordFn>>;
+        try {
+          r = await recordFn(claim);
+        } catch (firstError) {
+          console.warn("Ad reward request failed; retrying the same claim:", firstError);
+          r = await recordFn(claim);
+        }
+        setWatched(r.watched);
+        setResetAt(r.resetAt);
+        setCfg((c) => ({ ...c, limit: r.limit }));
+        setVerifyingClaim(false);
+        if (r.ok) {
+          setServerBalance(r.balance);
+          persistPendingClaim(null);
+          setStage("done");
+        } else {
+          persistPendingClaim(null);
+          setStage("intro");
+        }
+      } catch (error) {
+        console.error("Ad reward error:", error);
+        setVerifyingClaim(false);
+        setNotice(getAdClaimErrorNotice(error));
+        setStage("intro");
+      }
+    },
+    [identity, persistPendingClaim, recordFn],
+  );
   const remaining = Math.max(0, cfg.limit - watched);
   const [total, setTotal] = useState(settings.ad_seconds ?? WATCH_SECONDS);
   const [left, setLeft] = useState(total);
@@ -164,7 +250,7 @@ function AdsPage() {
         clearInterval(timer.current);
         timer.current = null;
       }
-      void finish();
+      void finish(attempt.claimId);
     },
     [finish],
   );
@@ -180,6 +266,10 @@ function AdsPage() {
   };
 
   const start = async () => {
+    if (pendingClaimId) {
+      void finish(pendingClaimId);
+      return;
+    }
     // Outside Telegram the server rejects the reward at the end, so don't run the timer at all.
     if (!readTelegramInitData()) {
       setNotice({
@@ -189,6 +279,7 @@ function AdsPage() {
       });
       return;
     }
+    setVerifyingClaim(false);
     setStage("loading");
     const showAd = await waitForShowGiga(GIGA_READY_TIMEOUT_MS);
     // No ad available: never run the timer as if an ad were shown, so no reward can be granted.
@@ -278,7 +369,7 @@ function AdsPage() {
           আজ দেখেছেন <b>{watched}</b> / {cfg.limit} টি এড · বাকি <b>{remaining}</b>
         </p>
       )}
-      {stage === "intro" && remaining <= 0 && (
+      {stage === "intro" && remaining <= 0 && !pendingClaimId && (
         <div className="rounded-2xl bg-card p-6 text-center shadow-card">
           <p className="text-4xl">⏳</p>
           <h2 className="mt-2 font-display text-xl">আজকের এড লিমিট শেষ</h2>
@@ -289,7 +380,22 @@ function AdsPage() {
           </p>
         </div>
       )}
-      {stage === "intro" && remaining > 0 && inTelegram === false && (
+      {stage === "intro" && pendingClaimId && (
+        <div className="rounded-2xl bg-card p-6 text-center shadow-card">
+          <p className="text-4xl">🔄</p>
+          <h2 className="mt-2 font-display text-xl">রিওয়ার্ড যাচাই বাকি</h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            বিজ্ঞাপনটি দেখা হয়েছে। একই বিজ্ঞাপন আবার না দেখে রিওয়ার্ড যাচাই করুন।
+          </p>
+          <button
+            onClick={() => void finish(pendingClaimId)}
+            className="mt-5 w-full rounded-xl header-grad py-3 font-semibold text-primary-foreground shadow-card"
+          >
+            রিওয়ার্ড আবার যাচাই করুন
+          </button>
+        </div>
+      )}
+      {stage === "intro" && !pendingClaimId && remaining > 0 && inTelegram === false && (
         <div className="rounded-2xl bg-card p-6 text-center shadow-card">
           <p className="text-4xl">📱</p>
           <h2 className="mt-2 font-display text-xl">Telegram-এ খুলুন</h2>
@@ -298,7 +404,7 @@ function AdsPage() {
           </p>
         </div>
       )}
-      {stage === "intro" && remaining > 0 && inTelegram !== false && (
+      {stage === "intro" && !pendingClaimId && remaining > 0 && inTelegram !== false && (
         <JobIntro
           title="Ads Video"
           desc={`${total} সেকেন্ড পুরো এড দেখলেই ৳${cfg.reward} পাবেন।`}
@@ -314,7 +420,9 @@ function AdsPage() {
             <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl header-grad text-3xl">
               📺
             </div>
-            <h2 className="mt-4 font-display text-xl">এড লোড হচ্ছে…</h2>
+            <h2 className="mt-4 font-display text-xl">
+              {verifyingClaim ? "রিওয়ার্ড যাচাই হচ্ছে…" : "এড লোড হচ্ছে…"}
+            </h2>
             <p className="mt-3 text-sm text-muted-foreground">একটু অপেক্ষা করুন।</p>
           </div>
         </div>
@@ -356,10 +464,14 @@ function AdsPage() {
             <h2 className="mt-4 font-display text-xl">{notice.title}</h2>
             <p className="mt-2 text-sm text-muted-foreground">{notice.desc}</p>
             <button
-              onClick={() => setNotice(null)}
+              onClick={() => {
+                const claimId = pendingClaimId;
+                setNotice(null);
+                if (claimId) void finish(claimId);
+              }}
               className="mt-5 w-full rounded-xl header-grad py-3 font-semibold text-primary-foreground shadow-card"
             >
-              ঠিক আছে
+              {pendingClaimId ? "রিওয়ার্ড আবার যাচাই করুন" : "ঠিক আছে"}
             </button>
           </div>
         </div>
