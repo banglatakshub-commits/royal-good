@@ -247,7 +247,7 @@ export const adminGetSettings = createServerFn({ method: "POST" })
         ref_bonus: 5,
         min_withdraw: 50,
         daily_spins: 2,
-        ads_script_id: "8416",
+        ads_script_id: "8594",
         daily_ads: 10,
         ad_reward: 5,
         ad_seconds: 15,

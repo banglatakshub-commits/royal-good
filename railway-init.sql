@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS public.app_settings (
   ref_bonus INTEGER NOT NULL DEFAULT 5,
   min_withdraw INTEGER NOT NULL DEFAULT 50,
   daily_spins INTEGER NOT NULL DEFAULT 2,
-  ads_script_id TEXT NOT NULL DEFAULT '8416',
+  ads_script_id TEXT NOT NULL DEFAULT '8594',
   daily_ads INTEGER NOT NULL DEFAULT 10,
   ad_reward INTEGER NOT NULL DEFAULT 5,
   ad_seconds INTEGER NOT NULL DEFAULT 15,
@@ -61,7 +61,7 @@ ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS min_withdraw INTEGER NO
 --> statement-breakpoint
 ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS daily_spins INTEGER NOT NULL DEFAULT 2;
 --> statement-breakpoint
-ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS ads_script_id TEXT NOT NULL DEFAULT '8416';
+ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS ads_script_id TEXT NOT NULL DEFAULT '8594';
 --> statement-breakpoint
 ALTER TABLE public.app_settings ADD COLUMN IF NOT EXISTS daily_ads INTEGER NOT NULL DEFAULT 10;
 --> statement-breakpoint

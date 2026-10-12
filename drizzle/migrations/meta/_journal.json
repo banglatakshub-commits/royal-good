@@ -50,6 +50,13 @@
       "when": 1791680000000,
       "tag": "0006_fix_referrals_legacy_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791770089254,
+      "tag": "0007_ads_script_id_8594",
+      "breakpoints": true
     }
   ]
 }

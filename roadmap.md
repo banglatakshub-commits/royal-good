@@ -2,6 +2,8 @@
 
 ## Current request
 
+- [x] Change the ads network script to GigaPub site ID `8594` (`https://ad.gigapub.tech/script?id=8594`). Updated the schema default, the public/admin settings fallbacks and the admin panel default; added migration `drizzle/migrations/0007_ads_script_id_8594.sql`, which also updates the live `app_settings` row (only while it still holds `8416`, so a later /admin change is not overwritten on the next deploy). Migration and public-settings tests pass and the production build succeeds; the two pre-existing `telegram-webhook` URL failures are unrelated and unchanged.
+
 - [x] Add a lightweight home 3D object and scroll reveals; desktop/mobile rendering, rotation, scroll reveals, reduced motion, and job navigation verified with no runtime errors or horizontal overflow.
 - [x] Replace the home 3D object with a faceted blue-pink gem (crown, girdle, pavilion, orbiting rings and orbs); mobile rendering, rotation, no edge clipping, and reduced motion verified with no runtime errors.
 - [x] Add a short Royal Good cinematic app-opening intro matching the current palette; automatic dismissal, skip, reduced motion, and mobile/desktop rendering verified with no runtime errors.
