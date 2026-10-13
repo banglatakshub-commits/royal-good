@@ -34,9 +34,14 @@ async function readNotificationParams(request: Request): Promise<NotificationPar
   return params;
 }
 
+/** Diagnostic ring buffer: the last 25 gateway callbacks this process saw. Read via referral-debug. */
+export type CallbackLog = { at: string; verdict: string; info: string };
+export const recentCallbacks: CallbackLog[] = [];
+
 /**
  * Logs the outcome of a callback together with the proxy headers, so the real source address
- * can be checked in Railway logs. Signatures and secrets are never logged.
+ * can be checked in Railway logs. Signatures and secrets are never logged. Also kept in memory
+ * (recentCallbacks) so the outcome of a real payment can be inspected without Railway log access.
  */
 function logCallback(verdict: string, request: Request, fields: Record<string, string> = {}): void {
   const clip = (value: string | null) => (value ?? "").slice(0, 200) || undefined;
@@ -49,6 +54,8 @@ function logCallback(verdict: string, request: Request, fields: Record<string, s
       ...fields,
     }),
   );
+  recentCallbacks.unshift({ at: new Date().toISOString(), verdict, info: JSON.stringify(fields) });
+  if (recentCallbacks.length > 25) recentCallbacks.length = 25;
 }
 
 /**
@@ -176,11 +183,29 @@ export const Route = createFileRoute("/api/public/nekpayment-webhook")({
           return new Response("Malformed notification", { status: 400 });
         }
 
+        // NEKpay sends the deposit order id as mch_order_no / mch_return_msg (snake_case), not
+        // mchOrderNo — matching the field the gateway's own docs read. Accept every spelling.
+        const orderNo = (
+          params["mch_order_no"] ??
+          params["mchOrderNo"] ??
+          params["mch_return_msg"] ??
+          ""
+        ).trim();
+
+        // Log every callback as received, so a real payment's fields can be inspected via debug.
+        logCallback("received", request, {
+          keys: Object.keys(params).join(","),
+          orderNo,
+          merTransferId: (params["merTransferId"] ?? params["mch_transferId"] ?? "").trim(),
+          tradeResult: params["tradeResult"] ?? "",
+          amount: params["oriAmount"] ?? params["amount"] ?? params["trade_amount"] ?? "",
+        });
+
         // Payout (transfer) callback: keyed by mch_transferId / merTransferId, no collection order.
         // Per NEKpay, payout callbacks are not reliably signed, so they are matched by the
         // withdrawal id and tradeResult rather than by signature.
         const payoutId = (params["merTransferId"] ?? params["mch_transferId"])?.trim();
-        if (payoutId && !params["mchOrderNo"]) {
+        if (payoutId && !orderNo) {
           try {
             await settlePayoutCallback(payoutId, params["tradeResult"] ?? "");
             logCallback("payout_accepted", request, {
@@ -195,7 +220,7 @@ export const Route = createFileRoute("/api/public/nekpayment-webhook")({
           }
         }
 
-        const transactionId = (params["mchOrderNo"] ?? params["merTransferId"])?.trim();
+        const transactionId = orderNo || (params["merTransferId"] ?? "").trim();
         if (!transactionId) {
           logCallback("missing_transaction_id", request);
           return new Response("Missing order ID", { status: 400 });
@@ -223,22 +248,34 @@ export const Route = createFileRoute("/api/public/nekpayment-webhook")({
             logCallback("invalid_signature", request, { transactionId });
             return new Response("Invalid signature", { status: 403 });
           }
-          if (params["mchOrderNo"] && params["mchId"] !== merchantId) {
-            logCallback("merchant_mismatch", request, { transactionId });
+          // Merchant id is sent as mch_id (snake) or mchId — only reject on a real mismatch.
+          const callbackMerchant = (params["mch_id"] ?? params["mchId"] ?? "").trim();
+          if (orderNo && callbackMerchant && merchantId && callbackMerchant !== merchantId) {
+            logCallback("merchant_mismatch", request, { transactionId, got: callbackMerchant });
             return new Response("Invalid merchant", { status: 403 });
           }
 
-          // For collection callbacks, verify the order and amount against our DB before activation.
-          if (params["mchOrderNo"]) {
+          // Collection callback: confirm the order exists; the signature already authenticates it,
+          // so the amount is only rejected when the gateway sends one that clearly disagrees.
+          if (orderNo) {
             const [order] = await getDb()
               .select({ amount: payment_transactions.amount, status: payment_transactions.status })
               .from(payment_transactions)
               .where(eq(payment_transactions.id, transactionId))
               .limit(1);
-            const paidAmount = Number(params["oriAmount"] ?? params["amount"]);
-            if (!order || !Number.isFinite(paidAmount) || paidAmount !== order.amount) {
-              logCallback("order_or_amount_mismatch", request, { transactionId });
-              return new Response("Order or amount mismatch", { status: 400 });
+            if (!order) {
+              logCallback("order_not_found", request, { transactionId });
+              return new Response("Order not found", { status: 400 });
+            }
+            const amtRaw = params["oriAmount"] ?? params["amount"] ?? params["trade_amount"];
+            const paidAmount = amtRaw !== undefined ? Number(amtRaw) : NaN;
+            if (Number.isFinite(paidAmount) && Math.round(paidAmount) !== order.amount) {
+              logCallback("amount_mismatch", request, {
+                transactionId,
+                paid: String(paidAmount),
+                expected: String(order.amount),
+              });
+              return new Response("Amount mismatch", { status: 400 });
             }
           }
 

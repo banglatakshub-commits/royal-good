@@ -3,6 +3,7 @@ import { desc, eq, sql } from "drizzle-orm";
 import { getDb } from "@/lib/database";
 import { players, referrals } from "../../../../drizzle/schema";
 import { recentStarts } from "./telegram-webhook";
+import { recentCallbacks } from "./nekpayment-webhook";
 
 function count(rows: { c: number }[]): number {
   return rows[0]?.c ?? 0;
@@ -74,6 +75,7 @@ export const Route = createFileRoute("/api/public/referral-debug")({
 
           return json({
             ok: true,
+            recentCallbacks,
             recentStarts,
             totalPlayers,
             totalReferrals,
