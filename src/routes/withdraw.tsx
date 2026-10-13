@@ -6,6 +6,7 @@ import {
   Clock,
   History,
   ShieldAlert,
+  ShieldCheck,
   XCircle,
 } from "lucide-react";
 import { BottomNav } from "@/components/BottomNav";
@@ -90,7 +91,7 @@ function WithdrawPage() {
   const [minWithdraw, setMinWithdraw] = useState(settings.min_withdraw);
   const [serverMinimum, setServerMinimum] = useState<number | null>(null);
   const [rejectedCount, setRejectedCount] = useState(0);
-  const [isActive, setIsActive] = useState(true);
+  const [isActive, setIsActive] = useState(false);
   const [isBlocked, setIsBlocked] = useState(false);
   const [activationFee, setActivationFee] = useState(100);
   const [ready, setReady] = useState(false);
@@ -371,6 +372,14 @@ function WithdrawPage() {
             </p>
           )}
         </div>
+
+        {/* Verified banner: shown only after the real status has loaded, so it never flashes. */}
+        {ready && isActive && !isBlocked && (
+          <div className="flex items-center justify-center gap-2 rounded-2xl border-2 border-green-500 bg-green-100 p-3 text-green-700 shadow-sm">
+            <ShieldCheck className="h-5 w-5 shrink-0" />
+            <p className="text-sm font-extrabold">আপনার অ্যাকাউন্ট ভেরিফাইড ✅</p>
+          </div>
+        )}
 
         {/* Blocked status is separate from activation; activation details stay inside the popup. */}
         {isBlocked && (
