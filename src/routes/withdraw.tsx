@@ -6,7 +6,6 @@ import {
   Clock,
   History,
   ShieldAlert,
-  ShieldCheck,
   XCircle,
 } from "lucide-react";
 import { BottomNav } from "@/components/BottomNav";
@@ -372,14 +371,6 @@ function WithdrawPage() {
             </p>
           )}
         </div>
-
-        {/* Verified banner: shown once the account is active (and not blocked). */}
-        {isActive && !isBlocked && (
-          <div className="flex items-center justify-center gap-2 rounded-2xl border-2 border-green-500 bg-green-100 p-3 text-green-700 shadow-sm">
-            <ShieldCheck className="h-5 w-5 shrink-0" />
-            <p className="text-sm font-extrabold">আপনার অ্যাকাউন্ট ভেরিফাইড ✅</p>
-          </div>
-        )}
 
         {/* Blocked status is separate from activation; activation details stay inside the popup. */}
         {isBlocked && (
