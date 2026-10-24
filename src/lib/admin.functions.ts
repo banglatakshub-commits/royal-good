@@ -404,6 +404,39 @@ export const adminSetWithdrawal = createServerFn({ method: "POST" })
     });
   });
 
+/** Reject every pending manual withdrawal, not just the currently visible admin group. */
+export const adminRejectAllWithdrawals = createServerFn({ method: "POST" })
+  .validator((data) =>
+    identitySchema.extend({ reason: z.string().trim().min(1).max(300) }).parse(data),
+  )
+  .handler(async ({ data }) => {
+    await assertTgAdmin(data);
+    return getDb().transaction(async (tx) => {
+      // The conditional UPDATE claims rows atomically. Concurrent/repeated rejection
+      // cannot refund a row twice. Never refund payouts already submitted to NEKpay.
+      const rejected = await tx
+        .update(withdrawals)
+        .set({ status: "rejected", note: data.reason })
+        .where(
+          and(
+            eq(withdrawals.status, "pending"),
+            sql`coalesce(${withdrawals.note}, '') NOT LIKE 'API:%'`,
+          ),
+        )
+        .returning({ tg_id: withdrawals.tg_id, amount: withdrawals.amount });
+      const refunds = new Map<string, number>();
+      for (const row of rejected) {
+        refunds.set(row.tg_id, (refunds.get(row.tg_id) ?? 0) + row.amount);
+      }
+      // Consistent player lock order also protects overlapping bulk operations.
+      for (const [tgId, amount] of [...refunds].sort(([a], [b]) => a.localeCompare(b))) {
+        const balance = await creditWithin(tx as unknown as BalanceExecutor, tgId, amount);
+        if (balance === null) throw new Error("Withdrawal refund could not be credited.");
+      }
+      return { ok: true, rejected: rejected.length };
+    });
+  });
+
 export const adminEditWithdrawalNumber = createServerFn({ method: "POST" })
   .validator((data) =>
     identitySchema

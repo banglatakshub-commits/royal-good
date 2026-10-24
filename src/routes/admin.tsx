@@ -36,6 +36,7 @@ import {
   adminToggleActive,
   adminDeleteUser,
   adminSetWithdrawal,
+  adminRejectAllWithdrawals,
   adminEditWithdrawalNumber,
   adminSendNekPayout,
   adminGetNekBalance,
@@ -352,6 +353,10 @@ function WithdrawsTab() {
   const [filter, setFilter] = useState("pending");
   const [group, setGroup] = useState<"first" | "repeat">("first");
   const setWd = useServerFn(adminSetWithdrawal);
+  const rejectAllWd = useServerFn(adminRejectAllWithdrawals);
+  const [rejectAllOpen, setRejectAllOpen] = useState(false);
+  const [bulkReason, setBulkReason] = useState("");
+  const [bulkBusy, setBulkBusy] = useState(false);
   const listWd = useServerFn(adminListWithdrawals);
   const { data = [] } = useQuery({
     queryKey: ["admin-withdraws"],
@@ -416,6 +421,27 @@ function WithdrawsTab() {
     }
   };
 
+  const rejectAll = async () => {
+    if (bulkBusy || !bulkReason.trim()) return;
+    setBulkBusy(true);
+    try {
+      const result = await rejectAllWd({ data: { ...myIdent(), reason: bulkReason.trim() } });
+      setRejectAllOpen(false);
+      setBulkReason("");
+      qc.invalidateQueries();
+      alert(
+        `${result.rejected} টি উইথড্র রিজেক্ট হয়েছে। নোট সেভ হয়েছে এবং টাকা ফেরত দেওয়া হয়েছে।`,
+      );
+    } catch {
+      alert("সব উইথড্র রিজেক্ট করা যায়নি। আবার চেষ্টা করুন।");
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+  const rejectableCount = data.filter(
+    (w) => w.status === "pending" && !(w.note ?? "").startsWith("API:"),
+  ).length;
+
   const saveNumber = async (id: string) => {
     if (newNumber.trim().length < 3) return alert("সঠিক নাম্বার দিন");
     try {
@@ -471,6 +497,55 @@ function WithdrawsTab() {
             {l}
           </button>
         ))}
+      </div>
+      <div className="rounded-2xl bg-card p-4 shadow-sm">
+        <button
+          onClick={() => setRejectAllOpen(true)}
+          disabled={bulkBusy || rejectableCount === 0}
+          className="w-full rounded-xl bg-destructive px-4 py-2 text-sm font-bold text-destructive-foreground disabled:opacity-50"
+        >
+          Reject All ({rejectableCount})
+        </button>
+        {rejectAllOpen && (
+          <div className="mt-3 space-y-3">
+            <p className="text-sm text-destructive">
+              প্রথম ও পরবর্তী—সব গ্রুপের পেন্ডিং উইথড্র রিজেক্ট হবে, শুধু এই তালিকার নয়। API-তে
+              পাঠানো রিকোয়েস্ট বাদ থাকবে। সবার টাকা ফেরত যাবে এবং একই নোট তাদের উইথড্র হিস্ট্রিতে
+              দেখা যাবে।
+            </p>
+            <label htmlFor="bulk-reject-note" className="block text-sm font-semibold">
+              রিজেক্ট নোট (আবশ্যক)
+            </label>
+            <textarea
+              id="bulk-reject-note"
+              value={bulkReason}
+              onChange={(e) => setBulkReason(e.target.value)}
+              maxLength={300}
+              disabled={bulkBusy}
+              placeholder="সবার জন্য রিজেক্টের কারণ লিখুন"
+              className="w-full rounded-xl border bg-background px-3 py-2 text-sm"
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={rejectAll}
+                disabled={bulkBusy || !bulkReason.trim() || rejectableCount === 0}
+                className="flex-1 rounded-xl bg-destructive px-4 py-2 text-sm font-bold text-destructive-foreground disabled:opacity-50"
+              >
+                {bulkBusy ? "রিজেক্ট হচ্ছে…" : "Reject All নিশ্চিত করুন"}
+              </button>
+              <button
+                onClick={() => {
+                  setRejectAllOpen(false);
+                  setBulkReason("");
+                }}
+                disabled={bulkBusy}
+                className="rounded-xl bg-muted px-4 py-2 text-sm disabled:opacity-50"
+              >
+                বাতিল
+              </button>
+            </div>
+          </div>
+        )}
       </div>
       {list.map((w) => (
         <div key={w.id} className="rounded-2xl bg-card p-4 shadow-sm">
