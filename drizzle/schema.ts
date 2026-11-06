@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
@@ -88,6 +89,8 @@ export const app_settings = pgTable("app_settings", {
   daily_quiz: integer("daily_quiz").notNull().default(5),
   support_telegram_username: text("support_telegram_username").notNull().default(""),
   activation_fee: integer("activation_fee").notNull().default(100),
+  bkash_number: text("bkash_number").notNull().default(""),
+  nagad_number: text("nagad_number").notNull().default(""),
   nek_api_key: text("nek_api_key").notNull().default(""),
   nek_secret_key: text("nek_secret_key").notNull().default(""),
   nek_withdraw_key: text("nek_withdraw_key").notNull().default(""),
@@ -155,4 +158,32 @@ export const payment_transactions = pgTable(
     updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [index("payment_transactions_tg_idx").on(table.tg_id)],
+);
+
+export const verification_requests = pgTable(
+  "verification_requests",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    tg_id: text("tg_id").notNull(),
+    amount: integer("amount").notNull(),
+    method: text("method").notNull(),
+    recipient_number: text("recipient_number").notNull(),
+    sender_number: text("sender_number").notNull(),
+    transaction_id: text("transaction_id").notNull(),
+    status: text("status").notNull().default("pending"),
+    note: text("note"),
+    created_at: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("verification_transaction_unique").on(
+      table.method,
+      sql`upper(${table.transaction_id})`,
+    ),
+    uniqueIndex("verification_pending_user_unique")
+      .on(table.tg_id)
+      .where(sql`${table.status} = 'pending'`),
+  ],
 );

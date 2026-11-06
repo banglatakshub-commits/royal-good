@@ -69,3 +69,16 @@ bun run db:generate
 bun run db:migrate
 bun run db:studio
 ```
+
+### Manual account verification
+
+After deploying the database migrations, set the bKash and/or Nagad **Send Money**
+receiving numbers and activation fee in Admin → Settings. An empty number disables
+that method. Users submit their sending number and transaction ID in the withdrawal
+verification dialog. Check the transfer in the provider account before approving or
+rejecting it under Admin → ভেরিফাই; approval activates the account but does not
+submit a withdrawal automatically. The user must submit the withdrawal again.
+Rejected requests can be resubmitted with a different transaction ID. Existing NEKpay
+callbacks and credentials remain available only to settle transactions initiated before
+this change; no new NEKpay payments or payouts can be initiated from the app. Review
+any outstanding legacy transactions before removing the old gateway configuration.

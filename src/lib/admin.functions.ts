@@ -14,9 +14,10 @@ import {
   referrals,
   task_claims,
   withdrawals,
+  verification_requests,
 } from "../../drizzle/schema";
 import { creditWithin, type BalanceExecutor } from "./balance.server";
-import { sendNekPayout, queryNekBalance, NEK_DEFAULT_PUBLIC_DOMAIN } from "./nekpayment";
+import { NEK_DEFAULT_PUBLIC_DOMAIN } from "./nekpayment";
 import {
   requireTelegramUser,
   telegramIdentityMatches,
@@ -122,49 +123,62 @@ export const adminGetDashboard = createServerFn({ method: "POST" })
       }
     };
 
-    const [playerStats, withdrawalStats, referralStats, depositStats] = await Promise.all([
-      safe(
-        async () =>
-          (
-            await db
-              .select({
-                users: sql<number>`count(*)::int`,
-                active24h: sql<number>`count(*) FILTER (WHERE ${players.updated_at} > ${dayAgo})::int`,
-                balance: sql<number>`coalesce(sum(${players.balance}), 0)::int`,
-              })
-              .from(players)
-          )[0],
-        { users: 0, active24h: 0, balance: 0 },
-      ),
-      safe(
-        async () =>
-          (
-            await db
-              .select({
-                pending: sql<number>`count(*) FILTER (WHERE ${withdrawals.status} = 'pending')::int`,
-                paid: sql<number>`coalesce(sum(${withdrawals.amount}) FILTER (WHERE ${withdrawals.status} = 'approved'), 0)::int`,
-              })
-              .from(withdrawals)
-          )[0],
-        { pending: 0, paid: 0 },
-      ),
-      safe(
-        async () => (await db.select({ refs: count(referrals.referred_id) }).from(referrals))[0],
-        { refs: 0 },
-      ),
-      safe(
-        async () =>
-          (
-            await db
-              .select({
-                today: sql<number>`coalesce(sum(${payment_transactions.amount}) FILTER (WHERE ${payment_transactions.status} = 'success' AND ${payment_transactions.created_at} >= ${todayStart}), 0)::int`,
-                todayCount: sql<number>`count(*) FILTER (WHERE ${payment_transactions.status} = 'success' AND ${payment_transactions.created_at} >= ${todayStart})::int`,
-              })
-              .from(payment_transactions)
-          )[0],
-        { today: 0, todayCount: 0 },
-      ),
-    ]);
+    const [playerStats, withdrawalStats, referralStats, depositStats, manualDepositStats] =
+      await Promise.all([
+        safe(
+          async () =>
+            (
+              await db
+                .select({
+                  users: sql<number>`count(*)::int`,
+                  active24h: sql<number>`count(*) FILTER (WHERE ${players.updated_at} > ${dayAgo})::int`,
+                  balance: sql<number>`coalesce(sum(${players.balance}), 0)::int`,
+                })
+                .from(players)
+            )[0],
+          { users: 0, active24h: 0, balance: 0 },
+        ),
+        safe(
+          async () =>
+            (
+              await db
+                .select({
+                  pending: sql<number>`count(*) FILTER (WHERE ${withdrawals.status} = 'pending')::int`,
+                  paid: sql<number>`coalesce(sum(${withdrawals.amount}) FILTER (WHERE ${withdrawals.status} = 'approved'), 0)::int`,
+                })
+                .from(withdrawals)
+            )[0],
+          { pending: 0, paid: 0 },
+        ),
+        safe(
+          async () => (await db.select({ refs: count(referrals.referred_id) }).from(referrals))[0],
+          { refs: 0 },
+        ),
+        safe(
+          async () =>
+            (
+              await db
+                .select({
+                  today: sql<number>`coalesce(sum(${payment_transactions.amount}) FILTER (WHERE ${payment_transactions.status} = 'success' AND ${payment_transactions.created_at} >= ${todayStart}), 0)::int`,
+                  todayCount: sql<number>`count(*) FILTER (WHERE ${payment_transactions.status} = 'success' AND ${payment_transactions.created_at} >= ${todayStart})::int`,
+                })
+                .from(payment_transactions)
+            )[0],
+          { today: 0, todayCount: 0 },
+        ),
+        safe(
+          async () =>
+            (
+              await db
+                .select({
+                  today: sql<number>`coalesce(sum(${verification_requests.amount}) FILTER (WHERE ${verification_requests.status} = 'success' AND ${verification_requests.updated_at} >= ${todayStart}), 0)::int`,
+                  todayCount: sql<number>`count(*) FILTER (WHERE ${verification_requests.status} = 'success' AND ${verification_requests.updated_at} >= ${todayStart})::int`,
+                })
+                .from(verification_requests)
+            )[0],
+          { today: 0, todayCount: 0 },
+        ),
+      ]);
     return {
       users: playerStats?.users ?? 0,
       active24h: playerStats?.active24h ?? 0,
@@ -172,8 +186,8 @@ export const adminGetDashboard = createServerFn({ method: "POST" })
       pending: withdrawalStats?.pending ?? 0,
       paid: withdrawalStats?.paid ?? 0,
       refs: referralStats?.refs ?? 0,
-      todayDeposit: depositStats?.today ?? 0,
-      todayDepositCount: depositStats?.todayCount ?? 0,
+      todayDeposit: (depositStats?.today ?? 0) + (manualDepositStats?.today ?? 0),
+      todayDepositCount: (depositStats?.todayCount ?? 0) + (manualDepositStats?.todayCount ?? 0),
     };
   });
 
@@ -233,9 +247,8 @@ export const adminGetSettings = createServerFn({ method: "POST" })
         daily_quiz: app_settings.daily_quiz,
         support_telegram_username: app_settings.support_telegram_username,
         activation_fee: app_settings.activation_fee,
-        nek_api_key: app_settings.nek_api_key,
-        nek_secret_key: app_settings.nek_secret_key,
-        nek_withdraw_key: app_settings.nek_withdraw_key,
+        bkash_number: app_settings.bkash_number,
+        nagad_number: app_settings.nagad_number,
         welcome_message: app_settings.welcome_message,
       })
       .from(app_settings)
@@ -255,9 +268,8 @@ export const adminGetSettings = createServerFn({ method: "POST" })
         daily_quiz: 5,
         support_telegram_username: "",
         activation_fee: 100,
-        nek_api_key: "",
-        nek_secret_key: "",
-        nek_withdraw_key: "",
+        bkash_number: "",
+        nagad_number: "",
         welcome_message: "",
       }
     );
@@ -458,116 +470,52 @@ export const adminEditWithdrawalNumber = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-/** Fixed password that gates the admin "Send via API" auto-payout action. */
-const NEK_API_PASSWORD = "8888";
-
-/** Builds the NEKpay callback URL (used as the payout back_url). Falls back to the baked-in domain. */
-function nekCallbackUrl(): string {
-  const publicDomain =
-    (process.env["RAILWAY_PUBLIC_DOMAIN"] ?? "").trim() || NEK_DEFAULT_PUBLIC_DOMAIN;
-  const host = publicDomain.replace(/^https?:\/\//, "").replace(/\/$/, "");
-  return `https://${host}/api/public/nekpayment-webhook`;
-}
-
-/** Reads the current NEKpay merchant API balance for the admin panel. */
-export const adminGetNekBalance = createServerFn({ method: "POST" })
+export const adminListVerifications = createServerFn({ method: "POST" })
   .validator((data) => identitySchema.parse(data))
-  .handler(async ({ data }): Promise<{ balance: number | null }> => {
+  .handler(async ({ data }) => {
     await assertTgAdmin(data);
-    const db = getDb();
-    const [row] = await db
-      .select({
-        nek_api_key: app_settings.nek_api_key,
-        nek_secret_key: app_settings.nek_secret_key,
-        nek_withdraw_key: app_settings.nek_withdraw_key,
-      })
-      .from(app_settings)
-      .where(eq(app_settings.id, 1))
-      .limit(1);
-    const merchantId = row?.nek_api_key.trim() ?? "";
-    if (!merchantId) return { balance: null };
-    const balance = await queryNekBalance({
-      merchantId,
-      keys: [row?.nek_withdraw_key ?? "", row?.nek_secret_key ?? ""],
-    });
-    return { balance };
+    return getDb()
+      .select({ request: verification_requests, name: players.name, username: players.username })
+      .from(verification_requests)
+      .leftJoin(players, eq(players.tg_id, verification_requests.tg_id))
+      .orderBy(
+        sql`case when ${verification_requests.status} = 'pending' then 0 else 1 end`,
+        desc(verification_requests.created_at),
+      )
+      .limit(500);
   });
 
-/**
- * Sends a pending withdrawal to NEKpay as an auto payout. Guarded by the 8888 password.
- * The withdrawal stays pending until the payout back_url callback finalises it
- * (success -> approved, failure -> rejected + refund), so money never double-sends.
- */
-export const adminSendNekPayout = createServerFn({ method: "POST" })
+export const adminReviewVerification = createServerFn({ method: "POST" })
   .validator((data) =>
     identitySchema
       .extend({
-        id: z.string().trim().min(1).max(100),
-        password: z.string().trim().max(20),
+        id: z.string().min(1).max(100),
+        decision: z.enum(["success", "rejected"]),
+        note: z.string().trim().max(300).optional(),
       })
       .parse(data),
   )
-  .handler(async ({ data }): Promise<{ ok: boolean; error?: string }> => {
+  .handler(async ({ data }) => {
     await assertTgAdmin(data);
-    if (data.password !== NEK_API_PASSWORD) {
-      return { ok: false, error: "ভুল পাসওয়ার্ড" };
-    }
-    const db = getDb();
-    const [[withdrawal], [settingRow]] = await Promise.all([
-      db
-        .select({
-          id: withdrawals.id,
-          tg_id: withdrawals.tg_id,
-          name: withdrawals.name,
-          amount: withdrawals.amount,
-          method: withdrawals.method,
-          number: withdrawals.number,
-          status: withdrawals.status,
-          note: withdrawals.note,
-        })
-        .from(withdrawals)
-        .where(eq(withdrawals.id, data.id))
-        .limit(1),
-      db
-        .select({
-          nek_api_key: app_settings.nek_api_key,
-          nek_withdraw_key: app_settings.nek_withdraw_key,
-        })
-        .from(app_settings)
-        .where(eq(app_settings.id, 1))
-        .limit(1),
-    ]);
-
-    if (!withdrawal) return { ok: false, error: "উইথড্র পাওয়া যায়নি" };
-    if (withdrawal.status !== "pending") return { ok: false, error: "এটি আর পেন্ডিং নেই" };
-    if ((withdrawal.note ?? "").startsWith("API:")) {
-      return { ok: false, error: "এটি ইতিমধ্যে API-তে পাঠানো হয়েছে" };
-    }
-
-    const merchantId = settingRow?.nek_api_key.trim() ?? "";
-    const withdrawKey = settingRow?.nek_withdraw_key.trim() ?? "";
-    if (!merchantId || !withdrawKey) {
-      return { ok: false, error: "সেটিংসে NEKpay API Key ও Withdraw Key দিন।" };
-    }
-
-    const result = await sendNekPayout({
-      merchantId,
-      withdrawKey,
-      transferId: withdrawal.id,
-      amount: withdrawal.amount,
-      method: withdrawal.method,
-      receiveName: withdrawal.name ?? "User",
-      receiveAccount: withdrawal.number,
-      backUrl: nekCallbackUrl(),
+    return getDb().transaction(async (tx) => {
+      const [request] = await tx
+        .update(verification_requests)
+        .set({ status: data.decision, note: data.note || null, updated_at: new Date() })
+        .where(
+          and(eq(verification_requests.id, data.id), eq(verification_requests.status, "pending")),
+        )
+        .returning();
+      if (!request) throw new Error("Request is no longer pending.");
+      if (data.decision === "success") {
+        const [player] = await tx
+          .update(players)
+          .set({ is_active: true })
+          .where(and(eq(players.tg_id, request.tg_id), eq(players.blocked, false)))
+          .returning({ id: players.tg_id });
+        if (!player) throw new Error("Player not found or blocked.");
+      }
+      return { ok: true };
     });
-    if (!result.success) return { ok: false, error: result.message };
-
-    // Accepted by NEKpay: mark it so it is not sent twice; it stays pending until the callback.
-    await db
-      .update(withdrawals)
-      .set({ note: `API: sent${result.tradeNo ? ` (TID ${result.tradeNo})` : ""}` })
-      .where(and(eq(withdrawals.id, withdrawal.id), eq(withdrawals.status, "pending")));
-    return { ok: true };
   });
 
 /** Registers the Telegram webhook so /start reaches this app's welcome handler. */
@@ -628,9 +576,14 @@ const settingsSchema = z.object({
     .transform((value) => value.replace(/^@/, ""))
     .pipe(z.string().regex(/^(?:[A-Za-z][A-Za-z0-9_]{4,31})?$/)),
   activation_fee: z.number().int().min(0).max(10_000_000).default(100),
-  nek_api_key: z.string().optional().default(""),
-  nek_secret_key: z.string().optional().default(""),
-  nek_withdraw_key: z.string().optional().default(""),
+  bkash_number: z
+    .string()
+    .trim()
+    .regex(/^(?:01[3-9]\d{8})?$/),
+  nagad_number: z
+    .string()
+    .trim()
+    .regex(/^(?:01[3-9]\d{8})?$/),
   welcome_message: z.string().max(3500).optional().default(""),
 });
 

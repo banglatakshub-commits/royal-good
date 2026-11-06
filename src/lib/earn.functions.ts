@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { and, count, eq, gte, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, gte, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "@/lib/database";
 import {
@@ -14,18 +14,14 @@ import {
 import { creditWithin, type BalanceExecutor } from "./balance.server";
 import { getDhakaNoonWindow } from "./dhaka-window";
 import { requireTelegramUser, telegramIdentityMatches } from "./telegram-auth.server";
-import { generateNekSign, resolveNekPayType, NEK_DEFAULT_PUBLIC_DOMAIN } from "./nekpayment";
-import { getRequest } from "@tanstack/react-start/server";
 import {
   effectiveMinWithdraw,
-  isWithdrawMethod,
-  normalizeWithdrawNumber,
   validateWithdraw,
   WITHDRAW_MESSAGES,
   withdrawRequestSchema,
   type WithdrawErrorCode,
 } from "./withdraw-validation";
-import { payment_transactions } from "../../drizzle/schema";
+import { verification_requests } from "../../drizzle/schema";
 
 const identity = z.object({
   initData: z.string().max(8192).optional(),
@@ -471,197 +467,114 @@ export const recordReferral = createServerFn({ method: "POST" })
     });
   });
 
-export type PaymentStart = { ok: true; url: string } | { ok: false; error: string };
-
-/** Derives the public host (for the callback URL) from the incoming request headers. */
-function requestPublicHost(): string {
-  try {
-    const headers = getRequest().headers;
-    const forwarded = headers.get("x-forwarded-host")?.split(",")[0]?.trim();
-    return (forwarded || headers.get("host")?.trim() || "").replace(/^https?:\/\//, "");
-  } catch {
-    return "";
-  }
-}
-
-const paymentStartSchema = identity.extend({
-  payMethod: z.enum(["bkash", "nagad"]).optional(),
-  // Withdrawal the user filled before activating — auto-submitted once payment succeeds.
-  wdAmount: z.number().int().min(1).max(10_000_000).optional(),
-  wdMethod: z.string().trim().max(20).optional(),
-  wdNumber: z.string().trim().max(20).optional(),
-});
-
-/** Starts the existing account-activation payment through NekPay collection API. */
-export const generatePaymentUrl = createServerFn({ method: "POST" })
-  .validator((data) => paymentStartSchema.parse(data))
-  .handler(async ({ data }): Promise<PaymentStart> => {
+/** Manual verification requests never activate an account until an admin reviews them. */
+export const getVerificationInfo = createServerFn({ method: "POST" })
+  .validator((data) => identity.parse(data))
+  .handler(async ({ data }) => {
     const user = authenticatedUser(data);
     const db = getDb();
-    const [[player], [settingRow]] = await Promise.all([
-      db
-        .select({ is_active: players.is_active, blocked: players.blocked })
-        .from(players)
-        .where(eq(players.tg_id, user.id))
-        .limit(1),
+    const [[config], [latest]] = await Promise.all([
       db
         .select({
-          activation_fee: app_settings.activation_fee,
-          nek_api_key: app_settings.nek_api_key,
-          nek_secret_key: app_settings.nek_secret_key,
+          fee: app_settings.activation_fee,
+          bkash: app_settings.bkash_number,
+          nagad: app_settings.nagad_number,
         })
         .from(app_settings)
         .where(eq(app_settings.id, 1))
         .limit(1),
+      db
+        .select()
+        .from(verification_requests)
+        .where(eq(verification_requests.tg_id, user.id))
+        .orderBy(desc(verification_requests.created_at))
+        .limit(1),
     ]);
-
-    if (!player) return { ok: false, error: "অ্যাকাউন্ট পাওয়া যায়নি" };
-    if (player.blocked) return { ok: false, error: "আপনার অ্যাকাউন্ট ব্লক করা হয়েছে" };
-    if (player.is_active) return { ok: false, error: "আপনার অ্যাকাউন্ট ইতিমধ্যে অ্যাক্টিভ" };
-
-    const merchantId = settingRow?.nek_api_key.trim() ?? "";
-    const secretKey = settingRow?.nek_secret_key.trim() ?? "";
-    if (!merchantId || !secretKey) {
-      return { ok: false, error: "NekPay Merchant ID ও Collection Key অ্যাডমিন সেটিংসে দিতে হবে।" };
-    }
-
-    // Pay type is built in (bKash/Nagad/Bank codes); an optional NEKPAY_PAY_TYPE env still overrides.
-    const payType = process.env["NEKPAY_PAY_TYPE"]?.trim() || resolveNekPayType(data.payMethod);
-
-    // Callback host: RAILWAY_PUBLIC_DOMAIN if set, else the request host, else the baked-in domain.
-    const configuredDomain = process.env["RAILWAY_PUBLIC_DOMAIN"]?.trim() ?? "";
-    const rawDomain = (
-      configuredDomain ||
-      requestPublicHost() ||
-      NEK_DEFAULT_PUBLIC_DOMAIN
-    ).replace(/^https?:\/\//, "");
-    const callbackHost = rawDomain.endsWith("/") ? rawDomain.slice(0, -1) : rawDomain;
-
-    const activationFee = settingRow?.activation_fee ?? 100;
-    const notifyUrl = `https://${callbackHost}/api/public/nekpayment-webhook`;
-    const orderId = `act_${crypto.randomUUID().replace(/-/g, "").slice(0, 24)}`;
-    const params: Record<string, string> = {
-      version: "1.0",
-      mch_id: merchantId,
-      notify_url: notifyUrl,
-      // Front-end return URL: after payment or "Back", the gateway sends the user
-      // here — straight back to the withdraw page inside the Telegram Mini App.
-      page_url: `https://${callbackHost}/withdraw`,
-      mch_order_no: orderId,
-      pay_type: payType,
-      trade_amount: String(activationFee),
-      order_date: new Intl.DateTimeFormat("en-CA", {
-        timeZone: "Asia/Dhaka",
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-        hourCycle: "h23",
-      })
-        .format(new Date())
-        .replace(",", ""),
-      goods_name: "Account Activation",
-      sign_type: "MD5",
+    return {
+      fee: config?.fee ?? 100,
+      bkash: config?.bkash ?? "",
+      nagad: config?.nagad ?? "",
+      latest: latest ?? null,
     };
-    // Bracket access: `params` is a Record, and the project forbids dot access on index signatures.
-    params["sign"] = generateNekSign(params, secretKey);
-
-    // Remember the withdrawal the user already filled, so it can be auto-submitted on success.
-    const wdNumber = normalizeWithdrawNumber(data.wdNumber ?? "");
-    const wdMethod = isWithdrawMethod(String(data.wdMethod ?? "")) ? String(data.wdMethod) : null;
-    const wdAmount =
-      typeof data.wdAmount === "number" && Number.isInteger(data.wdAmount) && data.wdAmount > 0
-        ? data.wdAmount
-        : null;
-
-    // Create the pending row before contacting the gateway, so an immediate callback can find it.
-    await db.insert(payment_transactions).values({
-      id: orderId,
-      tg_id: user.id,
-      amount: activationFee,
-      status: "pending",
-      wd_amount: wdAmount && wdNumber && wdMethod ? wdAmount : null,
-      wd_method: wdAmount && wdNumber && wdMethod ? wdMethod : null,
-      wd_number: wdAmount && wdNumber && wdMethod ? wdNumber : null,
-    });
-
-    try {
-      const response = await fetch("https://api.nekpayment.com/pay/web", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams(params),
-        signal: AbortSignal.timeout(15000),
-      });
-      const raw = await response.text();
-      let payload: unknown;
-      try {
-        payload = JSON.parse(raw);
-      } catch {
-        throw new Error("NekPay returned an unreadable response");
-      }
-      if (!response.ok) throw new Error(`NekPay request failed (HTTP ${response.status})`);
-      const paymentUrl = findNekPayPaymentUrl(payload);
-      if (!paymentUrl) throw new Error(`NekPay: ${nekPayErrorMessage(payload)}`);
-      return { ok: true, url: paymentUrl };
-    } catch (error) {
-      await db
-        .update(payment_transactions)
-        .set({ status: "failed", updated_at: new Date() })
-        .where(eq(payment_transactions.id, orderId));
-      console.error("NekPay activation request error:", error);
-      // Surface NekPay's real reason so merchant/key/pay_type issues are visible.
-      const reason = error instanceof Error ? error.message : "পেমেন্ট শুরু করা যায়নি";
-      return { ok: false, error: reason };
-    }
   });
 
-/** Pulls a human-readable error out of a NekPay response (respCode / errorMsg / tradeMsg). */
-function nekPayErrorMessage(payload: unknown): string {
-  if (!payload || typeof payload !== "object") return "অপ্রত্যাশিত রেসপন্স";
-  const o = payload as Record<string, unknown>;
-  const pick = (k: string) => (typeof o[k] === "string" ? (o[k] as string) : undefined);
-  return (
-    pick("errorMsg") ??
-    pick("tradeMsg") ??
-    pick("respMsg") ??
-    pick("message") ??
-    pick("msg") ??
-    pick("respCode") ??
-    "পেমেন্ট লিংক পাওয়া যায়নি"
-  );
-}
-
-function findNekPayPaymentUrl(value: unknown, depth = 0): string | null {
-  if (depth > 5 || !value || typeof value !== "object") return null;
-  const object = value as Record<string, unknown>;
-  // NekPay returns the cashier link in `payInfo`; keep the other common names too.
-  for (const key of [
-    "payInfo",
-    "pay_url",
-    "payUrl",
-    "payment_url",
-    "paymentUrl",
-    "cashierUrl",
-    "payment_link",
-    "url",
-    "redirect_url",
-  ]) {
-    const candidate = object[key];
-    if (typeof candidate === "string" && /^https?:\/\//i.test(candidate.trim())) {
-      return candidate.trim();
+export const submitVerification = createServerFn({ method: "POST" })
+  .validator((data) =>
+    identity
+      .extend({
+        method: z.enum(["bkash", "nagad"]),
+        expectedRecipient: z.string().max(20),
+        expectedFee: z.number().int().min(0),
+        sender: z
+          .string()
+          .trim()
+          .regex(/^01[3-9]\d{8}$/),
+        transactionId: z
+          .string()
+          .trim()
+          .regex(/^[A-Za-z0-9-]{4,40}$/),
+      })
+      .parse(data),
+  )
+  .handler(async ({ data }) => {
+    const user = authenticatedUser(data);
+    const db = getDb();
+    try {
+      return await db.transaction(async (tx) => {
+        const [player] = await tx
+          .select()
+          .from(players)
+          .where(eq(players.tg_id, user.id))
+          .for("update");
+        if (!player || player.blocked || player.is_active)
+          throw new Error("অ্যাকাউন্ট সক্রিয়, ব্লকড বা পাওয়া যায়নি।");
+        const [pending] = await tx
+          .select({ id: verification_requests.id })
+          .from(verification_requests)
+          .where(
+            and(
+              eq(verification_requests.tg_id, user.id),
+              eq(verification_requests.status, "pending"),
+            ),
+          )
+          .limit(1);
+        if (pending) throw new Error("আপনার একটি অনুরোধ ইতিমধ্যে পর্যালোচনাধীন।");
+        const [config] = await tx
+          .select()
+          .from(app_settings)
+          .where(eq(app_settings.id, 1))
+          .limit(1);
+        const recipient = data.method === "bkash" ? config?.bkash_number : config?.nagad_number;
+        if (!recipient) throw new Error("এই পেমেন্ট পদ্ধতি সেট করা নেই।");
+        if (
+          recipient !== data.expectedRecipient ||
+          (config?.activation_fee ?? 100) !== data.expectedFee
+        )
+          throw new Error("পেমেন্ট তথ্য পরিবর্তিত হয়েছে। আবার খুলে যাচাই করুন।");
+        await tx
+          .insert(verification_requests)
+          .values({
+            tg_id: user.id,
+            amount: config?.activation_fee ?? 100,
+            method: data.method,
+            recipient_number: recipient,
+            sender_number: data.sender,
+            transaction_id: data.transactionId.toUpperCase(),
+          });
+        return { ok: true as const };
+      });
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        (error.message.includes("অ্যাকাউন্ট") ||
+          error.message.includes("অনুরোধ") ||
+          error.message.includes("পদ্ধতি") ||
+          error.message.includes("পেমেন্ট তথ্য"))
+      )
+        return { ok: false as const, error: error.message };
+      return {
+        ok: false as const,
+        error: "অনুরোধ জমা হয়নি। এই ট্রানজেকশন আইডি আগে ব্যবহৃত হতে পারে।",
+      };
     }
-  }
-  // Fallback: any string value on this object that is itself a URL.
-  for (const candidate of Object.values(object)) {
-    if (typeof candidate === "string" && /^https?:\/\//i.test(candidate.trim())) {
-      return candidate.trim();
-    }
-  }
-  for (const nested of Object.values(object)) {
-    const found = findNekPayPaymentUrl(nested, depth + 1);
-    if (found) return found;
-  }
-  return null;
-}
+  });
