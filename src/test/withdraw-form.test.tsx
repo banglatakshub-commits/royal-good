@@ -39,6 +39,7 @@ const h = vi.hoisted(() => {
     },
     getMyWithdrawalHistory: vi.fn(async (..._args: unknown[]) => state.history),
     requestWithdraw: vi.fn(async (..._args: unknown[]) => state.result),
+    submitVerification: vi.fn(async (..._args: unknown[]) => ({ ok: true })),
     generatePaymentUrl: vi.fn(async (..._args: unknown[]) => ({
       ok: false,
       error: "পেমেন্ট লিংক নেই",
@@ -94,7 +95,7 @@ vi.mock("@/lib/earn.functions", () => ({
     nagad: "",
     latest: null,
   })),
-  submitVerification: vi.fn(async () => ({ ok: true })),
+  submitVerification: h.submitVerification,
   getMyWithdrawalHistory: h.getMyWithdrawalHistory,
   requestWithdraw: h.requestWithdraw,
   generatePaymentUrl: h.generatePaymentUrl,
@@ -132,6 +133,7 @@ beforeEach(() => {
   localStorage.clear();
   h.getMyWithdrawalHistory.mockClear();
   h.requestWithdraw.mockClear();
+  h.submitVerification.mockClear();
   h.generatePaymentUrl.mockClear();
   h.state.history = {
     rows: [],
@@ -336,5 +338,35 @@ describe("withdraw page validation", () => {
     fill({ amount: "100", number: "01712345678" });
     fireEvent.click(submit);
     expect(h.requestWithdraw).not.toHaveBeenCalled();
+  });
+  it("sends the verification payment proof from the redesigned sheet", async () => {
+    h.state.history = { ...h.state.history, isActive: false };
+    const submit = await renderPage();
+    fill({ amount: "100", number: "01712345678" });
+    fireEvent.click(submit);
+
+    const sheet = await screen.findByRole("dialog");
+    // Fee hero and the recipient the money must be sent to.
+    expect(sheet).toHaveTextContent("৳100");
+    expect(screen.getByText("01712345678")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(/যে নম্বর থেকে পাঠিয়েছেন/), {
+      target: { value: "01812345678" },
+    });
+    fireEvent.change(screen.getByLabelText(/ট্রানজেকশন আইডি/), { target: { value: "abc123" } });
+    fireEvent.click(screen.getByRole("button", { name: "ভেরিফিকেশনের জন্য জমা দিন" }));
+
+    await waitFor(() => expect(h.submitVerification).toHaveBeenCalledTimes(1));
+    expect(h.submitVerification.mock.calls[0]?.[0]).toMatchObject({
+      data: {
+        method: "bkash",
+        sender: "01812345678",
+        transactionId: "ABC123",
+        expectedRecipient: "01712345678",
+        expectedFee: 100,
+      },
+    });
+    // Sender and TrxID clear out for a clean retry.
+    await waitFor(() => expect(screen.getByLabelText(/যে নম্বর থেকে পাঠিয়েছেন/)).toHaveValue(""));
   });
 });

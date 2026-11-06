@@ -11,13 +11,8 @@ import {
 } from "lucide-react";
 import { BottomNav } from "@/components/BottomNav";
 import { PageShell } from "@/components/AppShell";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { VerificationPayment } from "@/components/VerificationPayment";
 import { getBalance, refreshBalance, setServerBalance, useBalance } from "@/lib/wallet";
 import {
   getVerificationInfo,
@@ -625,112 +620,29 @@ function WithdrawPage() {
           }
         }}
       >
-        <DialogContent className="w-[calc(100%-2rem)] max-w-sm rounded-2xl border bg-card p-6 shadow-xl">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-destructive/10 text-destructive">
-            <XCircle className="h-7 w-7" />
-          </div>
-          <DialogHeader className="items-center text-center">
-            <DialogTitle className="font-display text-xl font-bold text-primary-deep">
-              অ্যাকাউন্ট ভেরিফিকেশন
-            </DialogTitle>
-            <DialogDescription className="text-sm leading-6">
-              উইথড্র চালু করতে অ্যাকাউন্ট ভেরিফিকেশন বাধ্যতামূলক।
-            </DialogDescription>
-          </DialogHeader>
-          <div className="rounded-xl border bg-background px-4 py-3">
-            <p className="text-sm font-bold text-primary-deep">
-              💵 ফি: ৳ {verification?.fee ?? activationFee}.00{" "}
-              <span className="font-normal text-muted-foreground">(শুধুমাত্র একবার)</span>
-            </p>
-            <ul className="mt-1.5 space-y-0.5 text-xs text-muted-foreground">
-              <li>• উইথড্র চালু হবে।</li>
-              <li>• অ্যাকাউন্ট Active হবে।</li>
-              <li>• পুনরায় কোনো ফি লাগবে না।</li>
-            </ul>
-          </div>
-          <div className="space-y-3">
-            {!verification ? (
-              <p>পেমেন্ট তথ্য লোড হচ্ছে...</p>
-            ) : verification.latest?.status === "pending" ? (
-              <p className="rounded-xl bg-primary/10 p-3 text-sm">
-                আপনার ভেরিফিকেশন অনুরোধ পর্যালোচনাধীন। অ্যাডমিন অনুমোদনের পর আবার উইথড্র করুন।
-              </p>
-            ) : (
-              <>
-                {verification.latest?.status === "rejected" && (
-                  <p className="text-sm text-destructive">
-                    আগের অনুরোধ রিজেক্ট হয়েছে।{" "}
-                    {verification.latest.note && `কারণ: ${verification.latest.note}`}
-                  </p>
-                )}
-                <label className="block text-sm">
-                  পেমেন্ট পদ্ধতি
-                  <select
-                    value={payMethod}
-                    onChange={(e) => setPayMethod(e.target.value as "bkash" | "nagad")}
-                    className="mt-1 w-full rounded-xl border bg-background p-2"
-                  >
-                    <option value="bkash">bKash</option>
-                    <option value="nagad">Nagad</option>
-                  </select>
-                </label>
-                <p className="text-sm">
-                  {payMethod === "bkash" ? "bKash" : "Nagad"} নম্বরে Send Money করুন:{" "}
-                  <strong>{verification[payMethod] || "সেট করা নেই"}</strong>
-                  <br />
-                  পরিমাণ: ৳{verification.fee}
-                </p>
-                <label className="block text-sm">
-                  আপনার পেমেন্ট নম্বর
-                  <input
-                    value={sender}
-                    onChange={(e) => setSender(e.target.value)}
-                    placeholder="01XXXXXXXXX"
-                    inputMode="numeric"
-                    className="mt-1 w-full rounded-xl border bg-background p-2"
-                  />
-                </label>
-                <label className="block text-sm">
-                  ট্রানজেকশন আইডি
-                  <input
-                    value={transactionId}
-                    onChange={(e) => setTransactionId(e.target.value)}
-                    placeholder="TrxID"
-                    className="mt-1 w-full rounded-xl border bg-background p-2"
-                  />
-                </label>
-                <button
-                  onClick={() => handlePayment()}
-                  disabled={isProcessingPayment || !verification[payMethod]}
-                  className="w-full rounded-xl bg-primary py-3 text-sm font-bold text-primary-foreground disabled:opacity-60"
-                >
-                  {isProcessingPayment ? "অপেক্ষা করুন..." : "ভেরিফিকেশনের জন্য জমা দিন"}
-                </button>
-                <p className="text-xs text-muted-foreground">
-                  অ্যাডমিন পেমেন্ট যাচাই করে অনুমোদন দেবেন। অনুমোদনের পর আপনাকে আবার উইথড্র অনুরোধ
-                  করতে হবে।
-                </p>
-              </>
-            )}
-            <button
-              type="button"
-              onClick={() => {
-                setShowActivationPopup(false);
-                setPaymentError("");
-              }}
-              className="w-full rounded-xl border bg-background py-3.5 text-sm font-bold text-muted-foreground shadow-sm"
-            >
-              ফিরে যান
-            </button>
-            {paymentError && (
-              <p
-                role="alert"
-                className="rounded-xl bg-destructive/10 px-4 py-2.5 text-xs font-bold text-destructive"
-              >
-                {paymentError}
-              </p>
-            )}
-          </div>
+        <DialogContent
+          overlayClassName="bg-[#02110c]/85 backdrop-blur-[3px]"
+          className="max-h-[94dvh] w-[calc(100%-1.25rem)] max-w-[404px] overflow-y-auto overscroll-contain rounded-[26px] border-0 bg-transparent p-0 shadow-[0_30px_70px_-25px_rgba(0,0,0,0.85)] sm:rounded-[26px] [&>button]:z-20 [&>button]:text-white/60 [&>button:hover]:bg-white/10 [&>button:hover]:text-white"
+        >
+          <VerificationPayment
+            verification={verification}
+            fallbackFee={activationFee}
+            method={payMethod}
+            onMethodChange={setPayMethod}
+            sender={sender}
+            onSenderChange={setSender}
+            transactionId={transactionId}
+            onTransactionIdChange={setTransactionId}
+            submitting={isProcessingPayment}
+            error={paymentError}
+            onSubmit={() => {
+              void handlePayment();
+            }}
+            onBack={() => {
+              setShowActivationPopup(false);
+              setPaymentError("");
+            }}
+          />
         </DialogContent>
       </Dialog>
     </PageShell>

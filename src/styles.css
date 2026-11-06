@@ -158,6 +158,231 @@
   animation: wb-pulse 1.6s ease-in-out infinite;
 }
 
+/* ─── Withdraw verification · "Midnight Mint" payment sheet ─────────────── */
+@keyframes vpay-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes vpay-orb {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 0.7;
+  }
+  50% {
+    transform: translate3d(8%, -6%, 0) scale(1.12);
+    opacity: 1;
+  }
+}
+@keyframes vpay-sheen {
+  from {
+    transform: translateX(-140%) rotate(12deg);
+  }
+  to {
+    transform: translateX(360%) rotate(12deg);
+  }
+}
+@keyframes vpay-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+.vpay-sheet {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border-radius: 26px;
+  color: #eafaf4;
+  background:
+    radial-gradient(115% 70% at 8% -6%, rgba(124, 247, 213, 0.24), transparent 58%),
+    radial-gradient(100% 70% at 108% 4%, rgba(64, 189, 255, 0.18), transparent 55%),
+    linear-gradient(165deg, #0b241e 0%, #061713 48%, #061a22 100%);
+  box-shadow:
+    0 34px 80px -28px rgba(0, 0, 0, 0.85),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+}
+.vpay-sheet::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: radial-gradient(rgba(202, 255, 240, 0.35) 0.9px, transparent 0.9px);
+  background-size: 17px 17px;
+  opacity: 0.13;
+  -webkit-mask-image: radial-gradient(120% 62% at 50% 0%, #000 8%, transparent 72%);
+  mask-image: radial-gradient(120% 62% at 50% 0%, #000 8%, transparent 72%);
+}
+.vpay-sheet::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 2;
+  height: 1px;
+  opacity: 0.6;
+  background: linear-gradient(90deg, transparent, #8bffe0, #48c9f0, transparent);
+}
+
+.vpay-orb {
+  position: absolute;
+  z-index: 0;
+  border-radius: 999px;
+  filter: blur(38px);
+  pointer-events: none;
+}
+.vpay-orb-a {
+  width: 190px;
+  height: 190px;
+  top: -90px;
+  left: -60px;
+  background: rgba(96, 240, 203, 0.35);
+  animation: vpay-orb 9s ease-in-out infinite;
+}
+.vpay-orb-b {
+  width: 160px;
+  height: 160px;
+  top: -40px;
+  right: -70px;
+  background: rgba(64, 170, 255, 0.3);
+  animation: vpay-orb 11s ease-in-out infinite reverse;
+}
+
+.vpay-section {
+  animation: vpay-in 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.vpay-method {
+  position: relative;
+  overflow: hidden;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.035);
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.2s ease;
+}
+.vpay-method:hover {
+  transform: translateY(-1px);
+  border-color: rgba(124, 247, 213, 0.35);
+}
+.vpay-method[data-active="true"] {
+  border-color: rgba(124, 247, 213, 0.75);
+  background: linear-gradient(140deg, rgba(124, 247, 213, 0.16), rgba(64, 189, 255, 0.1));
+  box-shadow:
+    0 12px 26px -16px rgba(94, 240, 205, 0.9),
+    inset 0 0 0 1px rgba(124, 247, 213, 0.22);
+}
+.vpay-dot {
+  display: grid;
+  place-items: center;
+  height: 17px;
+  width: 17px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #04140f;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease;
+}
+.vpay-method[data-active="true"] .vpay-dot {
+  border-color: transparent;
+  background: linear-gradient(140deg, #8bffe0, #4fd9ee);
+}
+
+.vpay-field {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(4, 20, 16, 0.55);
+  padding: 11px 13px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #f2fffa;
+  outline: none;
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease;
+}
+.vpay-field::placeholder {
+  color: #6f9189;
+  font-weight: 500;
+}
+.vpay-field:focus {
+  border-color: rgba(124, 247, 213, 0.85);
+  background: rgba(6, 32, 25, 0.8);
+  box-shadow: 0 0 0 3px rgba(124, 247, 213, 0.14);
+}
+
+.vpay-cta {
+  position: relative;
+  overflow: hidden;
+  color: #03150f;
+  background: linear-gradient(103deg, #8bffe0 0%, #52dcee 52%, #a5ffd6 100%);
+  box-shadow:
+    0 16px 34px -16px rgba(82, 220, 238, 0.85),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  transition:
+    transform 0.18s ease,
+    filter 0.18s ease,
+    box-shadow 0.18s ease;
+}
+.vpay-cta::after {
+  content: "";
+  position: absolute;
+  top: -40%;
+  left: -30%;
+  width: 40%;
+  height: 180%;
+  opacity: 0;
+  transform: translateX(-140%) rotate(12deg);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.65), transparent);
+}
+.vpay-cta:not(:disabled):hover::after {
+  opacity: 1;
+  animation: vpay-sheen 1s ease;
+}
+.vpay-cta:not(:disabled):active {
+  transform: scale(0.985);
+}
+.vpay-cta:disabled {
+  opacity: 0.6;
+  filter: saturate(0.35) brightness(0.85);
+  box-shadow: none;
+}
+
+.vpay-skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.06) 25%,
+    rgba(255, 255, 255, 0.13) 37%,
+    rgba(255, 255, 255, 0.06) 63%
+  );
+  background-size: 400% 100%;
+  animation: vpay-shimmer 1.4s ease infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vpay-section,
+  .vpay-orb,
+  .vpay-skeleton,
+  .vpay-cta::after {
+    animation: none;
+  }
+}
+
 /* Short app-opening brand reveal; app data loads behind the overlay. */
 .royal-intro {
   position: fixed;
