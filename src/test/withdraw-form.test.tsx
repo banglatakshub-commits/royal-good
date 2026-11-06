@@ -88,6 +88,13 @@ vi.mock("@/lib/telegram", () => ({
 }));
 
 vi.mock("@/lib/earn.functions", () => ({
+  getVerificationInfo: vi.fn(async () => ({
+    fee: 100,
+    bkash: "01712345678",
+    nagad: "",
+    latest: null,
+  })),
+  submitVerification: vi.fn(async () => ({ ok: true })),
   getMyWithdrawalHistory: h.getMyWithdrawalHistory,
   requestWithdraw: h.requestWithdraw,
   generatePaymentUrl: h.generatePaymentUrl,
@@ -282,7 +289,10 @@ describe("withdraw page validation", () => {
 
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "অ্যাকাউন্ট ভেরিফিকেশন" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "ভেরিফাই করুন (৳100)" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: "ভেরিফিকেশনের জন্য জমা দিন" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("01712345678")).toBeInTheDocument();
     expect(h.requestWithdraw).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "ফিরে যান" }));

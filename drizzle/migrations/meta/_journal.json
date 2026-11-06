@@ -64,6 +64,13 @@
       "when": 1791784325364,
       "tag": "0008_idempotent_ad_claims",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1793969438029,
+      "tag": "0009_manual_verification",
+      "breakpoints": true
     }
   ]
 }

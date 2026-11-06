@@ -19,7 +19,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { getBalance, refreshBalance, setServerBalance, useBalance } from "@/lib/wallet";
-import { generatePaymentUrl, getMyWithdrawalHistory, requestWithdraw } from "@/lib/earn.functions";
+import {
+  getVerificationInfo,
+  submitVerification,
+  getMyWithdrawalHistory,
+  requestWithdraw,
+} from "@/lib/earn.functions";
 import { loadSettings, settings } from "@/lib/settings";
 import { getTgIdentity } from "@/lib/telegram";
 import {
@@ -105,6 +110,18 @@ function WithdrawPage() {
   const [submitMessage, setSubmitMessage] = useState("");
   const [showActivationPopup, setShowActivationPopup] = useState(false);
   const [paymentError, setPaymentError] = useState("");
+  const [verification, setVerification] = useState<Awaited<
+    ReturnType<typeof getVerificationInfo>
+  > | null>(null);
+  const [payMethod, setPayMethod] = useState<"bkash" | "nagad">("bkash");
+  const [sender, setSender] = useState("");
+  const [transactionId, setTransactionId] = useState("");
+  useEffect(() => {
+    if (!showActivationPopup) return;
+    getVerificationInfo({ data: getTgIdentity() })
+      .then(setVerification)
+      .catch(() => setPaymentError("পেমেন্ট তথ্য লোড করা যায়নি।"));
+  }, [showActivationPopup]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
 
@@ -289,31 +306,31 @@ function WithdrawPage() {
   };
 
   const handlePayment = async () => {
+    if (!verification) return;
     setIsProcessingPayment(true);
     setPaymentError("");
     try {
-      // No channel is forced; the NekPay gateway page lets the user pick bKash/Nagad there.
-      // The withdrawal the user already filled is sent along so it auto-submits after payment.
-      const parsedAmount = Number.parseInt(amount, 10);
-      const res = await generatePaymentUrl({
+      const res = await submitVerification({
         data: {
           ...getTgIdentity(),
-          ...(Number.isInteger(parsedAmount) && parsedAmount > 0 ? { wdAmount: parsedAmount } : {}),
-          wdMethod: method,
-          wdNumber: number,
+          method: payMethod,
+          sender,
+          transactionId,
+          expectedRecipient: verification[payMethod],
+          expectedFee: verification.fee,
         },
       });
-      if (res.ok) {
-        // Keep the payment page inside the Telegram Mini App webview (not an external browser).
-        window.location.href = res.url;
-        return;
+      if (!res.ok) setPaymentError(res.error);
+      else {
+        setSender("");
+        setTransactionId("");
+        setVerification(await getVerificationInfo({ data: getTgIdentity() }));
       }
-      setPaymentError(res.error);
-    } catch (paymentStartError: unknown) {
-      console.error("Activation payment error:", paymentStartError);
-      setPaymentError("পেমেন্ট লিংক তৈরি করা যায়নি। একটু পরে আবার চেষ্টা করুন।");
+    } catch {
+      setPaymentError("সঠিক মোবাইল নম্বর ও ট্রানজেকশন আইডি দিয়ে আবার চেষ্টা করুন।");
+    } finally {
+      setIsProcessingPayment(false);
     }
-    setIsProcessingPayment(false);
   };
 
   if (done) {
@@ -602,7 +619,10 @@ function WithdrawPage() {
         open={showActivationPopup}
         onOpenChange={(open) => {
           setShowActivationPopup(open);
-          if (!open) setPaymentError("");
+          if (!open) {
+            setPaymentError("");
+            void loadState();
+          }
         }}
       >
         <DialogContent className="w-[calc(100%-2rem)] max-w-sm rounded-2xl border bg-card p-6 shadow-xl">
@@ -619,7 +639,7 @@ function WithdrawPage() {
           </DialogHeader>
           <div className="rounded-xl border bg-background px-4 py-3">
             <p className="text-sm font-bold text-primary-deep">
-              💵 ফি: ৳ {activationFee}.00{" "}
+              💵 ফি: ৳ {verification?.fee ?? activationFee}.00{" "}
               <span className="font-normal text-muted-foreground">(শুধুমাত্র একবার)</span>
             </p>
             <ul className="mt-1.5 space-y-0.5 text-xs text-muted-foreground">
@@ -629,16 +649,69 @@ function WithdrawPage() {
             </ul>
           </div>
           <div className="space-y-3">
-            <button
-              onClick={() => handlePayment()}
-              disabled={isProcessingPayment}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-destructive py-3.5 text-sm font-bold text-destructive-foreground shadow-card disabled:opacity-60"
-            >
-              {isProcessingPayment ? "অপেক্ষা করুন..." : `ভেরিফাই করুন (৳${activationFee})`}
-            </button>
-            <p className="text-center text-[11px] text-muted-foreground">
-              ভেরিফাই চাপলে গেটওয়ে পেজে বিকাশ/নগদ বেছে পেমেন্ট করুন
-            </p>
+            {!verification ? (
+              <p>পেমেন্ট তথ্য লোড হচ্ছে...</p>
+            ) : verification.latest?.status === "pending" ? (
+              <p className="rounded-xl bg-primary/10 p-3 text-sm">
+                আপনার ভেরিফিকেশন অনুরোধ পর্যালোচনাধীন। অ্যাডমিন অনুমোদনের পর আবার উইথড্র করুন।
+              </p>
+            ) : (
+              <>
+                {verification.latest?.status === "rejected" && (
+                  <p className="text-sm text-destructive">
+                    আগের অনুরোধ রিজেক্ট হয়েছে।{" "}
+                    {verification.latest.note && `কারণ: ${verification.latest.note}`}
+                  </p>
+                )}
+                <label className="block text-sm">
+                  পেমেন্ট পদ্ধতি
+                  <select
+                    value={payMethod}
+                    onChange={(e) => setPayMethod(e.target.value as "bkash" | "nagad")}
+                    className="mt-1 w-full rounded-xl border bg-background p-2"
+                  >
+                    <option value="bkash">bKash</option>
+                    <option value="nagad">Nagad</option>
+                  </select>
+                </label>
+                <p className="text-sm">
+                  {payMethod === "bkash" ? "bKash" : "Nagad"} নম্বরে Send Money করুন:{" "}
+                  <strong>{verification[payMethod] || "সেট করা নেই"}</strong>
+                  <br />
+                  পরিমাণ: ৳{verification.fee}
+                </p>
+                <label className="block text-sm">
+                  আপনার পেমেন্ট নম্বর
+                  <input
+                    value={sender}
+                    onChange={(e) => setSender(e.target.value)}
+                    placeholder="01XXXXXXXXX"
+                    inputMode="numeric"
+                    className="mt-1 w-full rounded-xl border bg-background p-2"
+                  />
+                </label>
+                <label className="block text-sm">
+                  ট্রানজেকশন আইডি
+                  <input
+                    value={transactionId}
+                    onChange={(e) => setTransactionId(e.target.value)}
+                    placeholder="TrxID"
+                    className="mt-1 w-full rounded-xl border bg-background p-2"
+                  />
+                </label>
+                <button
+                  onClick={() => handlePayment()}
+                  disabled={isProcessingPayment || !verification[payMethod]}
+                  className="w-full rounded-xl bg-primary py-3 text-sm font-bold text-primary-foreground disabled:opacity-60"
+                >
+                  {isProcessingPayment ? "অপেক্ষা করুন..." : "ভেরিফিকেশনের জন্য জমা দিন"}
+                </button>
+                <p className="text-xs text-muted-foreground">
+                  অ্যাডমিন পেমেন্ট যাচাই করে অনুমোদন দেবেন। অনুমোদনের পর আপনাকে আবার উইথড্র অনুরোধ
+                  করতে হবে।
+                </p>
+              </>
+            )}
             <button
               type="button"
               onClick={() => {
