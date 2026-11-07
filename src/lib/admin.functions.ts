@@ -470,6 +470,13 @@ export const adminEditWithdrawalNumber = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+/**
+ * The verification tab is a work queue: only requests still waiting for a
+ * decision belong here. Reviewed rows stay in the table on purpose (the user
+ * needs their rejection reason, the TrxID uniqueness guard and dashboard
+ * deposit stats need the history), but they must disappear from this list as
+ * soon as an admin approves or rejects them.
+ */
 export const adminListVerifications = createServerFn({ method: "POST" })
   .validator((data) => identitySchema.parse(data))
   .handler(async ({ data }) => {
@@ -478,10 +485,8 @@ export const adminListVerifications = createServerFn({ method: "POST" })
       .select({ request: verification_requests, name: players.name, username: players.username })
       .from(verification_requests)
       .leftJoin(players, eq(players.tg_id, verification_requests.tg_id))
-      .orderBy(
-        sql`case when ${verification_requests.status} = 'pending' then 0 else 1 end`,
-        desc(verification_requests.created_at),
-      )
+      .where(eq(verification_requests.status, "pending"))
+      .orderBy(desc(verification_requests.created_at))
       .limit(500);
   });
 

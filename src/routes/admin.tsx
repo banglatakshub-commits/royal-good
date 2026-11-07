@@ -1089,6 +1089,11 @@ function VerificationTab() {
     setBusy(id);
     try {
       await adminReviewVerification({ data: { ...myIdent(), id, decision, note } });
+      // Remove the reviewed request from the queue immediately. The list query
+      // only returns pending rows, so approve/reject must never leave it visible.
+      qc.setQueryData<typeof data>(["admin-verifications"], (rows) =>
+        rows?.filter((row) => row.request.id !== id),
+      );
       await qc.invalidateQueries();
     } catch {
       alert("আপডেট হয়নি। রিকোয়েস্ট বা ইউজার যাচাই করুন।");
